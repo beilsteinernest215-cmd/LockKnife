@@ -75,9 +75,13 @@ def register(extract: Any, cli: Any) -> None:
             output, case_dir, filename=f"location_{mode.lower()}.json"
         )
         if mode.lower() == "artifacts":
-            payload = dataclasses.asdict(cli.extract_location_artifacts(_extract_devices(app), serial))
+            payload = dataclasses.asdict(
+                cli.extract_location_artifacts(_extract_devices(app), serial)
+            )
         else:
-            payload = dataclasses.asdict(cli.extract_location_snapshot(_extract_devices(app), serial))
+            payload = dataclasses.asdict(
+                cli.extract_location_snapshot(_extract_devices(app), serial)
+            )
         if output:
             write_json(output, payload)
             cli._register_output(

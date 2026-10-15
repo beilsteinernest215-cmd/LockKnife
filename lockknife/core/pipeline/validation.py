@@ -51,7 +51,12 @@ def validate_action(action_id: str, params: dict[str, Any]) -> None:
             raise LockKnifeError(f"Action {action_id} requires parameter {key}")
     for field in definition.fields:
         value = params.get(field.key)
-        if value is not None and not isinstance(value, dict) and field.choices and value not in field.choices:
+        if (
+            value is not None
+            and not isinstance(value, dict)
+            and field.choices
+            and value not in field.choices
+        ):
             raise LockKnifeError(f"Invalid {field.key} for {action_id}: {value}")
 
 
@@ -77,6 +82,11 @@ def validate_recipe(playbook: PlaybookDefinition) -> None:
     for step in playbook.steps:
         if not math.isfinite(step.timeout_s) or step.timeout_s <= 0:
             raise LockKnifeError(f"Invalid timeout for {step.step_id}")
-        if not isinstance(step.retries, int) or step.retries < 0 or not math.isfinite(step.retry_backoff_s) or step.retry_backoff_s < 0:
+        if (
+            not isinstance(step.retries, int)
+            or step.retries < 0
+            or not math.isfinite(step.retry_backoff_s)
+            or step.retry_backoff_s < 0
+        ):
             raise LockKnifeError(f"Invalid retry settings for {step.step_id}")
         check(step.params, ancestors(step.step_id))

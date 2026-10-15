@@ -46,4 +46,3 @@ def _extract_devices(app: Any) -> Any:
     from lockknife.core.device import DeviceManager
 
     return DeviceManager(AdbClient())
-

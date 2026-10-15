@@ -12,9 +12,9 @@ def test_device_heartbeat_daemon_detection():
     dev2 = AdbDevice(serial="device_physical_1", state="device", model="Galaxy_S23")
 
     mock_adb.list_devices.side_effect = [
-        [dev1],          # Tick 1: emulator-5554 present
-        [dev1, dev2],    # Tick 2: device_physical_1 attached
-        [dev2],          # Tick 3: emulator-5554 detached
+        [dev1],  # Tick 1: emulator-5554 present
+        [dev1, dev2],  # Tick 2: device_physical_1 attached
+        [dev2],  # Tick 3: emulator-5554 detached
     ]
 
     attached_devices = []

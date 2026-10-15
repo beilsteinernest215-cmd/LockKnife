@@ -49,10 +49,17 @@ def _normalize_result(result: dict[str, Any], params: dict[str, Any]) -> dict[st
     for key in ("data", "job"):
         payload = result.get(key)
         if isinstance(payload, dict):
-            if (payload.get("success") is False or payload.get("ok") is False
-                    or payload.get("status") in {"failed", "aborted", "cancelled"}):
-                result.update(ok=False, error=payload.get("error") or payload.get("error_message")
-                              or f"Action {key} reports failure")
+            if (
+                payload.get("success") is False
+                or payload.get("ok") is False
+                or payload.get("status") in {"failed", "aborted", "cancelled"}
+            ):
+                result.update(
+                    ok=False,
+                    error=payload.get("error")
+                    or payload.get("error_message")
+                    or f"Action {key} reports failure",
+                )
             elif payload.get("status") == "partial" or _payload_has_partial_signal(payload):
                 result["partial"] = True
         elif _payload_has_partial_signal(payload):
@@ -81,8 +88,12 @@ class PipelineExecutor:
     """
 
     def __init__(
-        self, *, case_dir: pathlib.Path, target_serial: str | None = None,
-        concurrency: int = 4, stop_on_failure: bool = False,
+        self,
+        *,
+        case_dir: pathlib.Path,
+        target_serial: str | None = None,
+        concurrency: int = 4,
+        stop_on_failure: bool = False,
         dispatch: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,
         action_validator: Callable[[str, dict[str, Any]], None] = validate_action,
     ) -> None:
@@ -106,11 +117,17 @@ class PipelineExecutor:
             self._action_callback = build_tui_callback(None)
         return self._action_callback
 
-    def _params(self, step: StepDefinition, run_dir: pathlib.Path,
-                records: dict[str, StepExecutionRecord] | None = None) -> dict[str, Any]:
+    def _params(
+        self,
+        step: StepDefinition,
+        run_dir: pathlib.Path,
+        records: dict[str, StepExecutionRecord] | None = None,
+    ) -> dict[str, Any]:
         def resolve(value: Any) -> Any:
             if isinstance(value, str):
-                return value.replace("${case_dir}", str(self.case_dir)).replace("${run_dir}", str(run_dir))
+                return value.replace("${case_dir}", str(self.case_dir)).replace(
+                    "${run_dir}", str(run_dir)
+                )
             if isinstance(value, dict):
                 if "$result" in value:
                     if records is None:
@@ -151,11 +168,15 @@ class PipelineExecutor:
             if step.fallback_action_id:
                 self._action_validator(step.fallback_action_id, params)
         return {
-            "playbook_name": playbook.name, "title": playbook.title,
-            "description": playbook.description, "category": playbook.category,
-            "case_dir": str(self.case_dir), "target_serial": self.target_serial,
+            "playbook_name": playbook.name,
+            "title": playbook.title,
+            "description": playbook.description,
+            "category": playbook.category,
+            "case_dir": str(self.case_dir),
+            "target_serial": self.target_serial,
             "requires_device": any(s.requires_device for s in playbook.steps),
-            "total_steps": len(playbook.steps), "tier_count": len(tiers),
+            "total_steps": len(playbook.steps),
+            "tier_count": len(tiers),
             "concurrency": self.concurrency,
             "timeout_policy": "deadline checked after handler returns; no forced interruption or timeout retry",
             "cancellation_policy": "stop new calls and wait for active handlers",
@@ -164,24 +185,36 @@ class PipelineExecutor:
         }
 
     def execute(
-        self, playbook: PlaybookDefinition, *, resume: bool = False,
-        dry_run: bool = False, pipeline_id: str | None = None,
+        self,
+        playbook: PlaybookDefinition,
+        *,
+        resume: bool = False,
+        dry_run: bool = False,
+        pipeline_id: str | None = None,
         on_step_start: Callable[[StepDefinition], None] | None = None,
         on_step_complete: Callable[[StepDefinition, StepExecutionRecord], None] | None = None,
     ) -> PipelineSummary:
         start = time.perf_counter()
         self.plan(playbook)
-        fingerprint = hashlib.sha256(json.dumps(playbook.to_dict(), sort_keys=True,
-                                               allow_nan=False).encode()).hexdigest()
-        metadata = {"title": playbook.title, "recipe": playbook.to_dict(),
-                    "recipe_fingerprint": fingerprint, "dry_run": False,
-                    "stop_on_failure": self.stop_on_failure}
+        fingerprint = hashlib.sha256(
+            json.dumps(playbook.to_dict(), sort_keys=True, allow_nan=False).encode()
+        ).hexdigest()
+        metadata = {
+            "title": playbook.title,
+            "recipe": playbook.to_dict(),
+            "recipe_fingerprint": fingerprint,
+            "dry_run": False,
+            "stop_on_failure": self.stop_on_failure,
+        }
         active_id = pipeline_id if pipeline_id is not None else f"pipe-{uuid.uuid4().hex}"
         pipeline_checkpoint_path(self.case_dir, active_id)
         checkpoint = None
         if resume and not dry_run:
-            candidates = ([load_checkpoint(self.case_dir, pipeline_id)] if pipeline_id else
-                          list_checkpoints(self.case_dir))
+            candidates = (
+                [load_checkpoint(self.case_dir, pipeline_id)]
+                if pipeline_id
+                else list_checkpoints(self.case_dir)
+            )
             for candidate in candidates:
                 matches = (
                     candidate.playbook_name == playbook.name
@@ -196,7 +229,11 @@ class PipelineExecutor:
                     break
                 if pipeline_id:
                     raise LockKnifeError("Checkpoint recipe, target or execution mode mismatch")
-        elif pipeline_id and not dry_run and pipeline_checkpoint_path(self.case_dir, active_id).exists():
+        elif (
+            pipeline_id
+            and not dry_run
+            and pipeline_checkpoint_path(self.case_dir, active_id).exists()
+        ):
             raise LockKnifeError("Pipeline ID already exists; use resume or a new ID")
 
         records = dict(checkpoint.step_records) if checkpoint else {}
@@ -209,25 +246,56 @@ class PipelineExecutor:
         run_dir = self.case_dir / "pipelines" / active_id
 
         if dry_run:
-            previews = tuple(StepExecutionRecord(
-                step_id=s.step_id, status=StepStatus.PENDING, attempt_count=0,
-                summary={"dry_run": True, "action_id": s.action_id},
-            ) for s in playbook.steps)
-            return PipelineSummary(active_id, playbook.name, str(self.case_dir), self.target_serial,
-                                   PipelineStatus.PENDING, time.perf_counter() - start,
-                                   len(previews), 0, 0, 0, 0, previews, "")
+            previews = tuple(
+                StepExecutionRecord(
+                    step_id=s.step_id,
+                    status=StepStatus.PENDING,
+                    attempt_count=0,
+                    summary={"dry_run": True, "action_id": s.action_id},
+                )
+                for s in playbook.steps
+            )
+            return PipelineSummary(
+                active_id,
+                playbook.name,
+                str(self.case_dir),
+                self.target_serial,
+                PipelineStatus.PENDING,
+                time.perf_counter() - start,
+                len(previews),
+                0,
+                0,
+                0,
+                0,
+                previews,
+                "",
+            )
 
         if not is_case_workspace(self.case_dir):
-            create_case_workspace(case_dir=self.case_dir, case_id=self.case_dir.name or "CASE-AUTO",
-                                  examiner="LockKnife Pipeline", title=playbook.title)
+            create_case_workspace(
+                case_dir=self.case_dir,
+                case_id=self.case_dir.name or "CASE-AUTO",
+                examiner="LockKnife Pipeline",
+                title=playbook.title,
+            )
         run_dir.mkdir(parents=True, exist_ok=True)
 
         def persist(status: PipelineStatus, *, ended: bool = False) -> pathlib.Path:
             now = _utc_now()
-            return save_checkpoint(PipelineCheckpoint(
-                active_id, playbook.name, str(self.case_dir), self.target_serial, status,
-                started_at, now, now if ended else None, dict(records), metadata,
-            ))
+            return save_checkpoint(
+                PipelineCheckpoint(
+                    active_id,
+                    playbook.name,
+                    str(self.case_dir),
+                    self.target_serial,
+                    status,
+                    started_at,
+                    now,
+                    now if ended else None,
+                    dict(records),
+                    metadata,
+                )
+            )
 
         persist(PipelineStatus.RUNNING)
         dispatch = self._get_action_callback()
@@ -241,16 +309,24 @@ class PipelineExecutor:
             result: dict[str, Any] = {}
             try:
                 if self._cancel.is_set():
-                    return StepExecutionRecord(step.step_id, StepStatus.SKIPPED, attempt_count=0,
-                                               error_message="Cancelled before dispatch")
+                    return StepExecutionRecord(
+                        step.step_id,
+                        StepStatus.SKIPPED,
+                        attempt_count=0,
+                        error_message="Cancelled before dispatch",
+                    )
                 if on_step_start:
                     on_step_start(step)
                 params = self._params(step, run_dir, records)
                 for key in ("output", "output_dir"):
                     if isinstance(params.get(key), str):
                         path = pathlib.Path(params[key])
-                        (path if key == "output_dir" else path.parent).mkdir(parents=True, exist_ok=True)
-                actions = [step.action_id] + ([step.fallback_action_id] if step.fallback_action_id else [])
+                        (path if key == "output_dir" else path.parent).mkdir(
+                            parents=True, exist_ok=True
+                        )
+                actions = [step.action_id] + (
+                    [step.fallback_action_id] if step.fallback_action_id else []
+                )
                 if step.requires_device and not self.target_serial:
                     if step.fallback_action_id:
                         actions = [step.fallback_action_id]
@@ -263,16 +339,26 @@ class PipelineExecutor:
                     for retry in range(step.retries + 1):
                         if self._cancel.is_set() or time.perf_counter() >= deadline:
                             expired = time.perf_counter() >= deadline
-                            result = {"ok": False, "error": "Deadline exceeded" if expired else "Cancelled"}
+                            result = {
+                                "ok": False,
+                                "error": "Deadline exceeded" if expired else "Cancelled",
+                            }
                             break
                         try:
                             self._action_validator(action, params)
                             # The production callback uses shared job tracking state.
                             # Serialize it as well as device actions; injected dispatchers
                             # may safely execute independent offline work concurrently.
-                            with self._device_lock if step.requires_device or self._action_validator is validate_action else nullcontext():
+                            with (
+                                self._device_lock
+                                if step.requires_device or self._action_validator is validate_action
+                                else nullcontext()
+                            ):
                                 if self._cancel.is_set() or time.perf_counter() >= deadline:
-                                    result = {"ok": False, "error": "Cancelled or deadline exceeded before dispatch"}
+                                    result = {
+                                        "ok": False,
+                                        "error": "Cancelled or deadline exceeded before dispatch",
+                                    }
                                     break
                                 attempts += 1
                                 result = dispatch(action, dict(params))
@@ -283,8 +369,11 @@ class PipelineExecutor:
                             result = {"ok": False, "error": str(exc)}
                         if time.perf_counter() >= deadline:
                             expired = True
-                            result = {**result, "ok": False,
-                                      "error": "Deadline exceeded; handler has returned (not forcibly interrupted)"}
+                            result = {
+                                **result,
+                                "ok": False,
+                                "error": "Deadline exceeded; handler has returned (not forcibly interrupted)",
+                            }
                             break
                         if result.get("ok") or self._cancel.is_set():
                             break
@@ -300,10 +389,17 @@ class PipelineExecutor:
             if result.get("ok") and (result.get("partial") or result.get("status") == "partial"):
                 status = StepStatus.PARTIAL
             return StepExecutionRecord(
-                step.step_id, status, now, _utc_now(), (time.perf_counter() - step_start) * 1000,
+                step.step_id,
+                status,
+                now,
+                _utc_now(),
+                (time.perf_counter() - step_start) * 1000,
                 AcquisitionTier.DIRECT if step.requires_device else AcquisitionTier.LOCAL_DERIVED,
-                summary=result, error_message=result.get("error"),
-                recovery_hint=result.get("recovery_hint"), attempt_count=attempts, used_fallback=fallback,
+                summary=result,
+                error_message=result.get("error"),
+                recovery_hint=result.get("recovery_hint"),
+                attempt_count=attempts,
+                used_fallback=fallback,
             )
 
         for tier in resolve_execution_tiers(build_dag(playbook.steps)):
@@ -318,9 +414,14 @@ class PipelineExecutor:
                 )
                 if stopped or self._cancel.is_set() or unmet:
                     records[step.step_id] = StepExecutionRecord(
-                        step.step_id, StepStatus.SKIPPED, attempt_count=0,
-                        error_message="Cancelled" if self._cancel.is_set() else
-                        "Stopped after failure" if stopped else "Prerequisite did not complete",
+                        step.step_id,
+                        StepStatus.SKIPPED,
+                        attempt_count=0,
+                        error_message="Cancelled"
+                        if self._cancel.is_set()
+                        else "Stopped after failure"
+                        if stopped
+                        else "Prerequisite did not complete",
                     )
                     if on_step_complete:
                         on_step_complete(step, records[step.step_id])
@@ -335,7 +436,8 @@ class PipelineExecutor:
                     if on_step_complete:
                         on_step_complete(step, records[step.step_id])
             if self.stop_on_failure and any(
-                records[s.step_id].status in {StepStatus.FAILED, StepStatus.PARTIAL} and not s.optional
+                records[s.step_id].status in {StepStatus.FAILED, StepStatus.PARTIAL}
+                and not s.optional
                 for s in tier
             ):
                 stopped = True
@@ -345,13 +447,29 @@ class PipelineExecutor:
         skipped = sum(r.status == StepStatus.SKIPPED for r in records.values())
         failed = sum(r.status == StepStatus.FAILED for r in records.values())
         partial = any(r.status == StepStatus.PARTIAL for r in records.values())
-        status = (PipelineStatus.CANCELLED if self._cancel.is_set() else
-                  PipelineStatus.COMPLETED if completed == len(playbook.steps) else
-                  PipelineStatus.PARTIAL if completed or partial else PipelineStatus.FAILED)
+        status = (
+            PipelineStatus.CANCELLED
+            if self._cancel.is_set()
+            else PipelineStatus.COMPLETED
+            if completed == len(playbook.steps)
+            else PipelineStatus.PARTIAL
+            if completed or partial
+            else PipelineStatus.FAILED
+        )
         path = persist(status, ended=True)
         artifact_count = len(load_case_manifest(self.case_dir).artifacts)
         return PipelineSummary(
-            active_id, playbook.name, str(self.case_dir), self.target_serial, status,
-            time.perf_counter() - start, len(playbook.steps), completed, skipped, failed,
-            artifact_count, tuple(records[s.step_id] for s in playbook.steps), str(path),
+            active_id,
+            playbook.name,
+            str(self.case_dir),
+            self.target_serial,
+            status,
+            time.perf_counter() - start,
+            len(playbook.steps),
+            completed,
+            skipped,
+            failed,
+            artifact_count,
+            tuple(records[s.step_id] for s in playbook.steps),
+            str(path),
         )

@@ -206,5 +206,3 @@ cli.add_command(actions_cmd)
 
 if __name__ == "__main__":
     cli()
-
-

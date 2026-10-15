@@ -35,27 +35,42 @@ def test_all_builtins_validate_against_real_registry_without_io(tmp_path: Path) 
     assert not engine.case_dir.exists()
 
 
-@pytest.mark.parametrize("action,params", [
-    ("security.scan", {}), ("forensics.carve", {"path": "x"}),
-    ("forensics.parse", {}), ("security.malware", {}),
-    ("report.generate", {"format": "invalid"}),
-])
-def test_invalid_actions_and_params_fail_planning(tmp_path: Path, action: str, params: dict) -> None:
+@pytest.mark.parametrize(
+    "action,params",
+    [
+        ("security.scan", {}),
+        ("forensics.carve", {"path": "x"}),
+        ("forensics.parse", {}),
+        ("security.malware", {}),
+        ("report.generate", {"format": "invalid"}),
+    ],
+)
+def test_invalid_actions_and_params_fail_planning(
+    tmp_path: Path, action: str, params: dict
+) -> None:
     with pytest.raises(LockKnifeError):
-        PipelineExecutor(case_dir=tmp_path).plan(recipe(dataclasses.replace(step(), action_id=action, params=params)))
+        PipelineExecutor(case_dir=tmp_path).plan(
+            recipe(dataclasses.replace(step(), action_id=action, params=params))
+        )
 
 
 def test_invalid_reference_and_retry_settings_fail_planning(tmp_path: Path) -> None:
     engine = executor(tmp_path)
-    for bad in (step(params={"path": {"$result": "missing", "path": "output"}}),
-                step(timeout_s=float("nan")), step(retries=-1), step(retry_backoff_s=-1)):
+    for bad in (
+        step(params={"path": {"$result": "missing", "path": "output"}}),
+        step(timeout_s=float("nan")),
+        step(retries=-1),
+        step(retry_backoff_s=-1),
+    ):
         with pytest.raises(LockKnifeError):
             engine.plan(recipe(bad))
 
 
 def test_dry_run_cannot_poison_resume(tmp_path: Path) -> None:
     calls = []
-    engine = executor(tmp_path / "case", dispatch=lambda action, params: calls.append(action) or {"ok": True})
+    engine = executor(
+        tmp_path / "case", dispatch=lambda action, params: calls.append(action) or {"ok": True}
+    )
     pb = recipe(step())
     preview = engine.execute(pb, dry_run=True, pipeline_id="same")
     assert preview.status == PipelineStatus.PENDING
@@ -100,13 +115,17 @@ def test_checkpoint_id_validation(tmp_path: Path, bad: str) -> None:
     assert not (tmp_path / "case").exists()
 
 
-def test_atomic_failure_preserves_previous_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_atomic_failure_preserves_previous_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     engine = executor(tmp_path, dispatch=lambda *_: {"ok": True})
     result = engine.execute(recipe(step()))
     cp = load_checkpoint(tmp_path, result.pipeline_id)
     original = Path(result.checkpoint_path).read_bytes()
+
     def fail(*args: object) -> None:
         raise OSError("replace failed")
+
     monkeypatch.setattr("lockknife.core.pipeline.checkpoint.os.replace", fail)
     with pytest.raises(OSError):
         save_checkpoint(dataclasses.replace(cp, status=PipelineStatus.FAILED))
@@ -116,9 +135,14 @@ def test_atomic_failure_preserves_previous_checkpoint(tmp_path: Path, monkeypatc
 
 def test_retry_attempt_count_and_stop_after_tier(tmp_path: Path) -> None:
     calls = []
-    engine = executor(tmp_path, stop_on_failure=True,
-                      dispatch=lambda action, params: calls.append(action) or {"ok": False})
-    result = engine.execute(recipe(step(retries=2, retry_backoff_s=0), step("two", depends_on=("one",))))
+    engine = executor(
+        tmp_path,
+        stop_on_failure=True,
+        dispatch=lambda action, params: calls.append(action) or {"ok": False},
+    )
+    result = engine.execute(
+        recipe(step(retries=2, retry_backoff_s=0), step("two", depends_on=("one",)))
+    )
     assert calls == ["one"] * 3
     assert result.step_records[0].attempt_count == 3
     assert result.step_records[1].status == StepStatus.SKIPPED
@@ -128,11 +152,13 @@ def test_retry_attempt_count_and_stop_after_tier(tmp_path: Path) -> None:
 def test_timeout_waits_for_handler_and_never_retries(tmp_path: Path) -> None:
     finished = threading.Event()
     calls = []
+
     def dispatch(action: str, params: dict) -> dict:
         calls.append(action)
         time.sleep(0.04)
         finished.set()
         return {"ok": True}
+
     engine = executor(tmp_path, dispatch=dispatch)
     result = engine.execute(recipe(step(timeout_s=0.01, retries=3, fallback_action_id="fallback")))
     assert finished.is_set()
@@ -144,10 +170,12 @@ def test_timeout_waits_for_handler_and_never_retries(tmp_path: Path) -> None:
 def test_cancel_stops_following_tiers_without_abandoning_work(tmp_path: Path) -> None:
     calls = []
     engine = executor(tmp_path)
+
     def dispatch(action: str, params: dict) -> dict:
         calls.append(action)
         engine.cancel()
         return {"ok": True}
+
     engine._action_callback = dispatch
     result = engine.execute(recipe(step(), step("two", depends_on=("one",))))
     assert result.status == PipelineStatus.CANCELLED
@@ -155,11 +183,16 @@ def test_cancel_stops_following_tiers_without_abandoning_work(tmp_path: Path) ->
     assert result.step_records[1].status == StepStatus.SKIPPED
 
 
-@pytest.mark.parametrize("response,expected", [
-    ({"ok": False}, PipelineStatus.FAILED),
-    ({"ok": True, "partial": True}, PipelineStatus.PARTIAL),
-])
-def test_optional_and_partial_results_are_not_completed(tmp_path: Path, response: dict, expected: PipelineStatus) -> None:
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        ({"ok": False}, PipelineStatus.FAILED),
+        ({"ok": True, "partial": True}, PipelineStatus.PARTIAL),
+    ],
+)
+def test_optional_and_partial_results_are_not_completed(
+    tmp_path: Path, response: dict, expected: PipelineStatus
+) -> None:
     result = executor(tmp_path, dispatch=lambda *_: response).execute(recipe(step(optional=True)))
     assert result.status == expected
     assert result.completed_steps == 0
@@ -167,33 +200,48 @@ def test_optional_and_partial_results_are_not_completed(tmp_path: Path, response
 
 def test_missing_result_file_blocks_downstream(tmp_path: Path) -> None:
     calls = []
-    result = executor(tmp_path, dispatch=lambda action, params: calls.append(action) or {"ok": True}).execute(
-        recipe(step(params={"output": "${run_dir}/missing.json"}),
-               step("two", depends_on=("one",), params={"path": {"$result": "one", "path": "output"}})))
+    result = executor(
+        tmp_path, dispatch=lambda action, params: calls.append(action) or {"ok": True}
+    ).execute(
+        recipe(
+            step(params={"output": "${run_dir}/missing.json"}),
+            step("two", depends_on=("one",), params={"path": {"$result": "one", "path": "output"}}),
+        )
+    )
     assert calls == ["one"]
     assert result.failed_steps == 1
     assert "not created" in result.step_records[0].error_message
     assert result.step_records[1].status == StepStatus.SKIPPED
 
 
-@pytest.mark.parametrize("result,expected", [
-    ({"ok": True, "data_json": '{"success": false}'}, StepStatus.FAILED),
-    ({"ok": True, "data_json": '{"status": "partial"}'}, StepStatus.PARTIAL),
-    ({"ok": True, "data_json": '{"warnings": ["incomplete"]}'}, StepStatus.PARTIAL),
-    ({"ok": True, "job_json": '{"status": "partial"}'}, StepStatus.PARTIAL),
-    ({"ok": True, "job_json": '{"status": "failed"}'}, StepStatus.FAILED),
-    ({"ok": True, "data_json": 'invalid'}, StepStatus.FAILED),
-])
-def test_bridge_payload_and_job_outcomes(tmp_path: Path, result: dict, expected: StepStatus) -> None:
+@pytest.mark.parametrize(
+    "result,expected",
+    [
+        ({"ok": True, "data_json": '{"success": false}'}, StepStatus.FAILED),
+        ({"ok": True, "data_json": '{"status": "partial"}'}, StepStatus.PARTIAL),
+        ({"ok": True, "data_json": '{"warnings": ["incomplete"]}'}, StepStatus.PARTIAL),
+        ({"ok": True, "job_json": '{"status": "partial"}'}, StepStatus.PARTIAL),
+        ({"ok": True, "job_json": '{"status": "failed"}'}, StepStatus.FAILED),
+        ({"ok": True, "data_json": "invalid"}, StepStatus.FAILED),
+    ],
+)
+def test_bridge_payload_and_job_outcomes(
+    tmp_path: Path, result: dict, expected: StepStatus
+) -> None:
     summary = executor(tmp_path, dispatch=lambda *_: result).execute(recipe(step()))
     assert summary.step_records[0].status == expected
     assert summary.completed_steps == 0
 
 
 def test_tui_run_supports_stop_on_failure_and_dry_run(tmp_path: Path) -> None:
-    result = build_tui_callback(None)("pipeline.run", {
-        "case_dir": str(tmp_path / "case"), "stop_on_failure": True, "dry_run": True,
-    })
+    result = build_tui_callback(None)(
+        "pipeline.run",
+        {
+            "case_dir": str(tmp_path / "case"),
+            "stop_on_failure": True,
+            "dry_run": True,
+        },
+    )
     assert result["ok"] is True
     assert json.loads(result["data_json"])["status"] == "pending"
     assert not (tmp_path / "case").exists()

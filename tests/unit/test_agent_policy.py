@@ -39,6 +39,7 @@ def test_researcher_policy_restricted_mode(tmp_path: pathlib.Path):
 
     # Create workspace
     from lockknife.core.case import create_case_workspace
+
     ws = tmp_path / "valid_ws"
     ws.mkdir()
     create_case_workspace(

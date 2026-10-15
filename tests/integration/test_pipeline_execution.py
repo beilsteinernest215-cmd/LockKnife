@@ -67,8 +67,12 @@ def test_end_to_end_pipeline_execution_in_case_workspace(tmp_path: pathlib.Path)
     assert manifest.case_id == "CASE-E2E"
 
 
-@pytest.mark.parametrize("name", ["triage", "deep-forensics", "incident-response", "crypto-audit", "full-spectrum"])
-def test_builtins_use_real_offline_handlers_and_acquired_files(tmp_path: pathlib.Path, name: str) -> None:
+@pytest.mark.parametrize(
+    "name", ["triage", "deep-forensics", "incident-response", "crypto-audit", "full-spectrum"]
+)
+def test_builtins_use_real_offline_handlers_and_acquired_files(
+    tmp_path: pathlib.Path, name: str
+) -> None:
     """Stub device access only; dispatch analysis and reporting through the real registry."""
     callback = build_tui_callback(None)
     pb = get_playbook(name)
@@ -81,18 +85,33 @@ def test_builtins_use_real_offline_handlers_and_acquired_files(tmp_path: pathlib
                 if action == "forensics.snapshot":
                     output.write_bytes(b"snapshot bytes %PDF-1.4 sample %%EOF")
                 else:
-                    output.write_text(json.dumps([{
-                        "date_ms": 1700000000000, "timestamp_ms": 1700000000000,
-                        "body": "pipeline fixture", "address": "+15555550123",
-                    }]), encoding="utf-8")
+                    output.write_text(
+                        json.dumps(
+                            [
+                                {
+                                    "date_ms": 1700000000000,
+                                    "timestamp_ms": 1700000000000,
+                                    "body": "pipeline fixture",
+                                    "address": "+15555550123",
+                                }
+                            ]
+                        ),
+                        encoding="utf-8",
+                    )
             return {"ok": True}
         return callback(action, params)
 
-    summary = PipelineExecutor(case_dir=tmp_path / name, target_serial="FIXTURE", dispatch=dispatch).execute(pb)
-    assert summary.status.value == "completed", [(r.step_id, r.error_message) for r in summary.step_records]
+    summary = PipelineExecutor(
+        case_dir=tmp_path / name, target_serial="FIXTURE", dispatch=dispatch
+    ).execute(pb)
+    assert summary.status.value == "completed", [
+        (r.step_id, r.error_message) for r in summary.step_records
+    ]
     records = {record.step_id: record for record in summary.step_records}
     if "forensics.timeline" in records:
-        timeline = json.loads(pathlib.Path(records["forensics.timeline"].summary["output"]).read_text())
+        timeline = json.loads(
+            pathlib.Path(records["forensics.timeline"].summary["output"]).read_text()
+        )
         assert timeline["event_count"] > 0
         assert any("sms.json" in source["path"] for source in timeline["sources"])
         carved = records["forensics.carve"].summary["data"]
@@ -102,7 +121,10 @@ def test_builtins_use_real_offline_handlers_and_acquired_files(tmp_path: pathlib
 
 @pytest.mark.parametrize("encrypt,full", [(False, True), (False, False), (True, True)])
 def test_production_snapshot_pipeline_with_stub_device(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, encrypt: bool, full: bool,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encrypt: bool,
+    full: bool,
 ) -> None:
     commands = []
 
@@ -123,23 +145,34 @@ def test_production_snapshot_pipeline_with_stub_device(
 
     monkeypatch.setattr("lockknife_headless_cli.tui_callback._devices", lambda app: Device())
     callback = build_tui_callback(None)
-    builtin = next(s for s in get_playbook("deep-forensics").steps if s.action_id == "forensics.snapshot")
+    builtin = next(
+        s for s in get_playbook("deep-forensics").steps if s.action_id == "forensics.snapshot"
+    )
     assert builtin.params["full"] is True
     snapshot = dataclasses.replace(
-        builtin, depends_on=(), params={**builtin.params, "encrypt": encrypt, "full": full,
-                                       "paths": "/data/example"},
+        builtin,
+        depends_on=(),
+        params={**builtin.params, "encrypt": encrypt, "full": full, "paths": "/data/example"},
     )
     steps = [snapshot]
     if not encrypt:
-        steps.append(StepDefinition(
-            "carve", "Carve Snapshot", "forensics.carve", "forensics",
-            depends_on=(snapshot.step_id,), params={
-                "path": {"$result": snapshot.step_id, "path": "output"},
-                "output_dir": "${run_dir}/carved",
-            },
-        ))
+        steps.append(
+            StepDefinition(
+                "carve",
+                "Carve Snapshot",
+                "forensics.carve",
+                "forensics",
+                depends_on=(snapshot.step_id,),
+                params={
+                    "path": {"$result": snapshot.step_id, "path": "output"},
+                    "output_dir": "${run_dir}/carved",
+                },
+            )
+        )
     pb = PlaybookDefinition("snapshot-stub", "Snapshot", "", "test", tuple(steps))
-    summary = PipelineExecutor(case_dir=tmp_path, target_serial="FIXTURE", dispatch=callback).execute(pb)
+    summary = PipelineExecutor(
+        case_dir=tmp_path, target_serial="FIXTURE", dispatch=callback
+    ).execute(pb)
     assert summary.status.value == "completed", summary.to_dict()
     output = pathlib.Path(summary.step_records[0].summary["output"])
     assert output.is_file()

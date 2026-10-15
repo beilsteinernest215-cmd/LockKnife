@@ -76,9 +76,7 @@ def register(extract: Any, cli: Any) -> None:
                     ],
                     "passwords": [
                         dataclasses.asdict(row)
-                        for row in cli.extract_firefox_saved_logins(
-                            devices, serial, limit=limit
-                        )
+                        for row in cli.extract_firefox_saved_logins(devices, serial, limit=limit)
                     ],
                 }
             else:
@@ -142,9 +140,7 @@ def register(extract: Any, cli: Any) -> None:
             elif kind_l == "cookies":
                 rows = cli.extract_chrome_cookies(devices, serial, limit=limit, browser=app_l)
             else:
-                rows = cli.extract_chrome_saved_logins(
-                    devices, serial, limit=limit, browser=app_l
-                )
+                rows = cli.extract_chrome_saved_logins(devices, serial, limit=limit, browser=app_l)
         else:
             if kind_l == "history":
                 rows = cli.extract_firefox_history(devices, serial, limit=limit)

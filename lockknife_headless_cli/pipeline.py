@@ -21,12 +21,16 @@ from lockknife.core.pipeline import (
 )
 
 
-@click.group("pipeline", cls=LockKnifeGroup, help="Autonomous multi-stage investigation pipeline engine.")
+@click.group(
+    "pipeline", cls=LockKnifeGroup, help="Autonomous multi-stage investigation pipeline engine."
+)
 def pipeline_group() -> None:
     pass
 
 
-@pipeline_group.command("list", cls=LockKnifeCommand, help="List available autonomous investigation playbooks.")
+@pipeline_group.command(
+    "list", cls=LockKnifeCommand, help="List available autonomous investigation playbooks."
+)
 @click.option(
     "--format",
     "out_format",
@@ -59,10 +63,21 @@ def pipeline_list_cmd(out_format: str) -> None:
     console.print(table)
 
 
-@pipeline_group.command("plan", cls=LockKnifeCommand, help="Inspect DAG tiers and execution plan for a playbook.")
+@pipeline_group.command(
+    "plan", cls=LockKnifeCommand, help="Inspect DAG tiers and execution plan for a playbook."
+)
 @click.option("--playbook", "-p", default="triage", help="Playbook name to inspect.")
-@click.option("--recipe", type=click.Path(path_type=pathlib.Path), help="Path to custom YAML/JSON playbook recipe.")
-@click.option("--case-dir", type=click.Path(path_type=pathlib.Path), default="./cases/CASE-PREVIEW", help="Target case directory.")
+@click.option(
+    "--recipe",
+    type=click.Path(path_type=pathlib.Path),
+    help="Path to custom YAML/JSON playbook recipe.",
+)
+@click.option(
+    "--case-dir",
+    type=click.Path(path_type=pathlib.Path),
+    default="./cases/CASE-PREVIEW",
+    help="Target case directory.",
+)
 @click.option("--serial", "-s", help="Target device serial (optional).")
 @click.option(
     "--format",
@@ -92,7 +107,9 @@ def pipeline_plan_cmd(
 
     console.print(f"[bold cyan]Playbook:[/] [bold white]{pb.title}[/] ({pb.name})")
     console.print(f"[dim]{pb.description}[/]\n")
-    console.print(f"• Total Steps: [bold]{plan_data['total_steps']}[/] across [bold]{plan_data['tier_count']}[/] topological tiers")
+    console.print(
+        f"• Total Steps: [bold]{plan_data['total_steps']}[/] across [bold]{plan_data['tier_count']}[/] topological tiers"
+    )
     console.print(f"• Target Device: [yellow]{serial or 'none (offline)'}[/]")
     console.print(f"• Case Workspace: [dim]{case_dir}[/]\n")
 
@@ -118,14 +135,32 @@ def pipeline_plan_cmd(
         console.print("")
 
 
-@pipeline_group.command("run", cls=LockKnifeCommand, help="Execute an autonomous investigation pipeline.")
+@pipeline_group.command(
+    "run", cls=LockKnifeCommand, help="Execute an autonomous investigation pipeline."
+)
 @click.option("--playbook", "-p", default="triage", help="Playbook name to execute.")
-@click.option("--recipe", type=click.Path(path_type=pathlib.Path), help="Path to custom YAML/JSON playbook recipe.")
-@click.option("--case-dir", "-c", required=True, type=click.Path(path_type=pathlib.Path), help="Case directory for evidence and checkpoint.")
+@click.option(
+    "--recipe",
+    type=click.Path(path_type=pathlib.Path),
+    help="Path to custom YAML/JSON playbook recipe.",
+)
+@click.option(
+    "--case-dir",
+    "-c",
+    required=True,
+    type=click.Path(path_type=pathlib.Path),
+    help="Case directory for evidence and checkpoint.",
+)
 @click.option("--serial", "-s", help="Target device serial.")
-@click.option("--concurrency", "-j", default=4, type=int, help="Parallel concurrency for independent steps.")
-@click.option("--dry-run", is_flag=True, help="Simulate execution without running underlying actions.")
-@click.option("--resume", is_flag=True, help="Resume an existing pipeline from its latest checkpoint.")
+@click.option(
+    "--concurrency", "-j", default=4, type=int, help="Parallel concurrency for independent steps."
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Simulate execution without running underlying actions."
+)
+@click.option(
+    "--resume", is_flag=True, help="Resume an existing pipeline from its latest checkpoint."
+)
 @click.option(
     "--format",
     "out_format",
@@ -156,18 +191,28 @@ def pipeline_run_cmd(
 
     if out_format.lower() != "json":
         console.print(f"[bold cyan]Starting Autonomous Pipeline:[/] [bold white]{pb.title}[/]")
-        console.print(f"[dim]Case: {case_dir.resolve()} | Concurrency: {concurrency} | Dry-run: {dry_run}[/]\n")
+        console.print(
+            f"[dim]Case: {case_dir.resolve()} | Concurrency: {concurrency} | Dry-run: {dry_run}[/]\n"
+        )
 
     summary = executor.execute(
         pb,
         resume=resume,
         dry_run=dry_run,
-        on_step_start=lambda s: console.print(f"  [cyan]▶ Running:[/] {s.label} ({s.step_id})...") if out_format.lower() != "json" else None,
-        on_step_complete=lambda s, r: console.print(
-            f"  [{'green' if r.status.value == 'completed' else 'yellow' if r.status.value == 'partial' else 'red'}]"
-            f"✓ {s.label}: {r.status.value.upper()}[/] ({r.duration_ms:.1f}ms)"
-            + (" [dim](fallback used)[/]" if r.used_fallback else "")
-        ) if out_format.lower() != "json" else None,
+        on_step_start=lambda s: (
+            console.print(f"  [cyan]▶ Running:[/] {s.label} ({s.step_id})...")
+            if out_format.lower() != "json"
+            else None
+        ),
+        on_step_complete=lambda s, r: (
+            console.print(
+                f"  [{'green' if r.status.value == 'completed' else 'yellow' if r.status.value == 'partial' else 'red'}]"
+                f"✓ {s.label}: {r.status.value.upper()}[/] ({r.duration_ms:.1f}ms)"
+                + (" [dim](fallback used)[/]" if r.used_fallback else "")
+            )
+            if out_format.lower() != "json"
+            else None
+        ),
     )
 
     if out_format.lower() == "json":
@@ -177,9 +222,13 @@ def pipeline_run_cmd(
         return
 
     console.print("\n[bold]═══════════════════════════════════════════════════[/]")
-    console.print(f"[bold cyan]Pipeline Summary:[/] [bold { 'green' if summary.status.value == 'completed' else 'yellow' }]{summary.status.value.upper()}[/]")
+    console.print(
+        f"[bold cyan]Pipeline Summary:[/] [bold {'green' if summary.status.value == 'completed' else 'yellow'}]{summary.status.value.upper()}[/]"
+    )
     console.print(f"• Pipeline ID: [white]{summary.pipeline_id}[/]")
-    console.print(f"• Completed Steps: [green]{summary.completed_steps}[/] / [white]{summary.total_steps}[/]")
+    console.print(
+        f"• Completed Steps: [green]{summary.completed_steps}[/] / [white]{summary.total_steps}[/]"
+    )
     if summary.skipped_steps:
         console.print(f"• Skipped Steps: [yellow]{summary.skipped_steps}[/]")
     if summary.failed_steps:
@@ -191,11 +240,21 @@ def pipeline_run_cmd(
         raise click.exceptions.Exit(1)
 
 
-@pipeline_group.command("resume", cls=LockKnifeCommand, help="Resume an interrupted pipeline from checkpoint.")
-@click.option("--case-dir", "-c", required=True, type=click.Path(path_type=pathlib.Path), help="Case directory containing checkpoint.")
+@pipeline_group.command(
+    "resume", cls=LockKnifeCommand, help="Resume an interrupted pipeline from checkpoint."
+)
+@click.option(
+    "--case-dir",
+    "-c",
+    required=True,
+    type=click.Path(path_type=pathlib.Path),
+    help="Case directory containing checkpoint.",
+)
 @click.option("--pipeline-id", help="Specific pipeline ID to resume (defaults to latest).")
 @click.option("--serial", "-s", help="Target device serial.")
-@click.option("--concurrency", "-j", default=4, type=int, help="Parallel concurrency for independent steps.")
+@click.option(
+    "--concurrency", "-j", default=4, type=int, help="Parallel concurrency for independent steps."
+)
 @click.option(
     "--format",
     "out_format",
@@ -225,7 +284,11 @@ def pipeline_resume_cmd(
 
     try:
         saved_recipe = target_cp.metadata.get("recipe")
-        pb = PlaybookDefinition.from_dict(saved_recipe) if saved_recipe else get_playbook(target_cp.playbook_name)
+        pb = (
+            PlaybookDefinition.from_dict(saved_recipe)
+            if saved_recipe
+            else get_playbook(target_cp.playbook_name)
+        )
     except Exception as exc:
         raise click.ClickException(f"Failed to load playbook for checkpoint: {exc}") from exc
 
@@ -237,17 +300,27 @@ def pipeline_resume_cmd(
     )
 
     if out_format.lower() != "json":
-        console.print(f"[bold cyan]Resuming Pipeline:[/] [bold white]{target_cp.pipeline_id}[/] ({pb.title})")
+        console.print(
+            f"[bold cyan]Resuming Pipeline:[/] [bold white]{target_cp.pipeline_id}[/] ({pb.title})"
+        )
 
     summary = executor.execute(
         pb,
         resume=True,
         pipeline_id=target_cp.pipeline_id,
-        on_step_start=lambda s: console.print(f"  [cyan]▶ Running:[/] {s.label} ({s.step_id})...") if out_format.lower() != "json" else None,
-        on_step_complete=lambda s, r: console.print(
-            f"  [{'green' if r.status.value == 'completed' else 'yellow' if r.status.value == 'partial' else 'red'}]"
-            f"✓ {s.label}: {r.status.value.upper()}[/] ({r.duration_ms:.1f}ms)"
-        ) if out_format.lower() != "json" else None,
+        on_step_start=lambda s: (
+            console.print(f"  [cyan]▶ Running:[/] {s.label} ({s.step_id})...")
+            if out_format.lower() != "json"
+            else None
+        ),
+        on_step_complete=lambda s, r: (
+            console.print(
+                f"  [{'green' if r.status.value == 'completed' else 'yellow' if r.status.value == 'partial' else 'red'}]"
+                f"✓ {s.label}: {r.status.value.upper()}[/] ({r.duration_ms:.1f}ms)"
+            )
+            if out_format.lower() != "json"
+            else None
+        ),
     )
 
     if out_format.lower() == "json":
@@ -256,13 +329,23 @@ def pipeline_resume_cmd(
             raise click.exceptions.Exit(1)
         return
 
-    console.print(f"\n[bold green]Resumed Pipeline Finished:[/] {summary.status.value.upper()} ({summary.duration_s:.2f}s)")
+    console.print(
+        f"\n[bold green]Resumed Pipeline Finished:[/] {summary.status.value.upper()} ({summary.duration_s:.2f}s)"
+    )
     if summary.status.value in {"failed", "partial", "cancelled"}:
         raise click.exceptions.Exit(1)
 
 
-@pipeline_group.command("status", cls=LockKnifeCommand, help="Check status of pipelines in a case workspace.")
-@click.option("--case-dir", "-c", required=True, type=click.Path(path_type=pathlib.Path), help="Case directory.")
+@pipeline_group.command(
+    "status", cls=LockKnifeCommand, help="Check status of pipelines in a case workspace."
+)
+@click.option(
+    "--case-dir",
+    "-c",
+    required=True,
+    type=click.Path(path_type=pathlib.Path),
+    help="Case directory.",
+)
 @click.option(
     "--format",
     "out_format",
@@ -291,7 +374,13 @@ def pipeline_status_cmd(case_dir: pathlib.Path, out_format: str) -> None:
     for cp in cps:
         completed = sum(1 for r in cp.step_records.values() if r.status.value == "completed")
         total = len(cp.step_records)
-        style = "green" if cp.status.value == "completed" else "yellow" if cp.status.value == "running" else "red"
+        style = (
+            "green"
+            if cp.status.value == "completed"
+            else "yellow"
+            if cp.status.value == "running"
+            else "red"
+        )
         table.add_row(
             cp.pipeline_id,
             cp.playbook_name,

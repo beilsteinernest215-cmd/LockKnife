@@ -470,7 +470,8 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
             filename=f"media.{ext}",
         )
         rows = [
-            dataclasses.asdict(r) for r in extract_media_with_exif(_devices(app), serial, limit=limit)
+            dataclasses.asdict(r)
+            for r in extract_media_with_exif(_devices(app), serial, limit=limit)
         ]
         if output is not None:
             if ext == "csv":

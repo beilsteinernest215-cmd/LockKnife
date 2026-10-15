@@ -16,7 +16,9 @@ def pipeline_dir(case_dir: pathlib.Path) -> pathlib.Path:
 
 def pipeline_checkpoint_path(case_dir: pathlib.Path, pipeline_id: str) -> pathlib.Path:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", pipeline_id):
-        raise LockKnifeError("Invalid pipeline ID: use 1-128 letters, digits, underscores or hyphens")
+        raise LockKnifeError(
+            "Invalid pipeline ID: use 1-128 letters, digits, underscores or hyphens"
+        )
     directory = pipeline_dir(case_dir)
     path = directory / f"{pipeline_id}.json"
     if directory.is_symlink() or path.is_symlink():
@@ -29,8 +31,9 @@ def save_checkpoint(checkpoint: PipelineCheckpoint) -> pathlib.Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix=".checkpoint-", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=".checkpoint-", delete=False
+        ) as handle:
             temporary = handle.name
             json.dump(checkpoint.to_dict(), handle, indent=2, allow_nan=False)
             handle.flush()
@@ -52,7 +55,10 @@ def load_checkpoint(case_dir: pathlib.Path, pipeline_id: str) -> PipelineCheckpo
         if not isinstance(payload, dict):
             raise ValueError("Expected dictionary payload")
         checkpoint = PipelineCheckpoint.from_dict(payload)
-        if checkpoint.pipeline_id != pipeline_id or pathlib.Path(checkpoint.case_dir).resolve() != case_dir.resolve():
+        if (
+            checkpoint.pipeline_id != pipeline_id
+            or pathlib.Path(checkpoint.case_dir).resolve() != case_dir.resolve()
+        ):
             raise ValueError("Checkpoint identity does not match its path")
         return checkpoint
     except Exception as exc:

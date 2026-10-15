@@ -45,7 +45,10 @@ def test_resolve_adb_binary_fallback_env(monkeypatch, tmp_path):
 
 def test_resolve_adb_binary_fallback_default():
     """When adb cannot be found in SDK or PATH, default 'adb' string is returned."""
-    with patch("shutil.which", return_value=None), patch("pathlib.Path.is_file", return_value=False):
+    with (
+        patch("shutil.which", return_value=None),
+        patch("pathlib.Path.is_file", return_value=False),
+    ):
         assert resolve_adb_binary(None) == "adb"
 
 
@@ -187,4 +190,3 @@ def test_extract_all_rows_resilience():
     assert res == []
     assert len(errors) == 0
     mock_extractor.assert_called_once()
-

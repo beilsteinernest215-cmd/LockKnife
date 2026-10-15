@@ -56,7 +56,9 @@ def test_pipeline_engine_retries_transient_failure(tmp_path: pathlib.Path) -> No
         category="core",
         steps=(step,),
     )
-    executor = PipelineExecutor(case_dir=tmp_path / "case-retry", action_validator=lambda action, params: None)
+    executor = PipelineExecutor(
+        case_dir=tmp_path / "case-retry", action_validator=lambda action, params: None
+    )
     executor._action_callback = mock_dispatch
     summary = executor.execute(pb)
 
@@ -83,8 +85,11 @@ def test_pipeline_engine_offline_fallback(tmp_path: pathlib.Path) -> None:
         steps=(step,),
     )
     # No target_serial supplied (offline / no target device)
-    executor = PipelineExecutor(case_dir=tmp_path / "case-offline", target_serial=None,
-                                action_validator=lambda action, params: None)
+    executor = PipelineExecutor(
+        case_dir=tmp_path / "case-offline",
+        target_serial=None,
+        action_validator=lambda action, params: None,
+    )
     executor._action_callback = lambda act, params: {"ok": True, "action": act}
     summary = executor.execute(pb)
 
@@ -100,7 +105,9 @@ def test_agent_memory_appends_empty_reasoning_tool_call(tmp_path: pathlib.Path) 
     wm = WorkingMemory(goal=AgentGoal(objective="Test goal"))
     # Assistant decides to call tool without reasoning text
     decision = ModelDecision.call_tools(
-        tool_calls=[ToolInvocation(call_id="call_123", tool_id="device_shell", arguments={"command": "id"})],
+        tool_calls=[
+            ToolInvocation(call_id="call_123", tool_id="device_shell", arguments={"command": "id"})
+        ],
         reasoning="",
     )
     wm.recent_turns.append(TurnRecord(turn_index=1, decision=decision, observations=[]))
@@ -166,10 +173,18 @@ def test_reflexion_milestones_advancement() -> None:
     plan = GoalPlan(
         goal=AgentGoal(objective="Forensic audit of device"),
         milestones=[
-            PlanMilestone(milestone_id="m1", title="Device Triage and Inventory", description="Detect device"),
-            PlanMilestone(milestone_id="m2", title="App Data Extraction", description="Extract app data"),
-            PlanMilestone(milestone_id="m3", title="Vulnerability Analysis", description="Audit APKs"),
-            PlanMilestone(milestone_id="m4", title="Final Case Report", description="Generate report"),
+            PlanMilestone(
+                milestone_id="m1", title="Device Triage and Inventory", description="Detect device"
+            ),
+            PlanMilestone(
+                milestone_id="m2", title="App Data Extraction", description="Extract app data"
+            ),
+            PlanMilestone(
+                milestone_id="m3", title="Vulnerability Analysis", description="Audit APKs"
+            ),
+            PlanMilestone(
+                milestone_id="m4", title="Final Case Report", description="Generate report"
+            ),
         ],
     )
     engine = ReflexionEngine(plan=plan)
@@ -177,7 +192,15 @@ def test_reflexion_milestones_advancement() -> None:
     # 1. Triage tool validates milestone 1
     engine.evaluate(
         [ToolInvocation(call_id="c1", tool_id="device_health", arguments={})],
-        [ToolObservation(call_id="c1", tool_id="device_health", success=True, output="Device online", error=None)],
+        [
+            ToolObservation(
+                call_id="c1",
+                tool_id="device_health",
+                success=True,
+                output="Device online",
+                error=None,
+            )
+        ],
     )
     assert plan.milestones[0].status == MilestoneStatus.COMPLETED
     assert plan.milestones[1].status == MilestoneStatus.PENDING
@@ -185,7 +208,15 @@ def test_reflexion_milestones_advancement() -> None:
     # 2. Extraction tool validates milestone 2
     engine.evaluate(
         [ToolInvocation(call_id="c2", tool_id="messaging_extract", arguments={})],
-        [ToolObservation(call_id="c2", tool_id="messaging_extract", success=True, output="Messages extracted", error=None)],
+        [
+            ToolObservation(
+                call_id="c2",
+                tool_id="messaging_extract",
+                success=True,
+                output="Messages extracted",
+                error=None,
+            )
+        ],
     )
     assert plan.milestones[1].status == MilestoneStatus.COMPLETED
     assert plan.milestones[2].status == MilestoneStatus.PENDING
@@ -193,7 +224,15 @@ def test_reflexion_milestones_advancement() -> None:
     # 3. Analysis tool validates milestone 3
     engine.evaluate(
         [ToolInvocation(call_id="c3", tool_id="apk_analyze", arguments={})],
-        [ToolObservation(call_id="c3", tool_id="apk_analyze", success=True, output="Vulnerabilities scanned", error=None)],
+        [
+            ToolObservation(
+                call_id="c3",
+                tool_id="apk_analyze",
+                success=True,
+                output="Vulnerabilities scanned",
+                error=None,
+            )
+        ],
     )
     assert plan.milestones[2].status == MilestoneStatus.COMPLETED
     assert plan.milestones[3].status == MilestoneStatus.PENDING
@@ -201,7 +240,15 @@ def test_reflexion_milestones_advancement() -> None:
     # 4. Report tool validates milestone 4
     engine.evaluate(
         [ToolInvocation(call_id="c4", tool_id="report_generate", arguments={})],
-        [ToolObservation(call_id="c4", tool_id="report_generate", success=True, output="Report ready", error=None)],
+        [
+            ToolObservation(
+                call_id="c4",
+                tool_id="report_generate",
+                success=True,
+                output="Report ready",
+                error=None,
+            )
+        ],
     )
     assert plan.milestones[3].status == MilestoneStatus.COMPLETED
 
@@ -246,12 +293,16 @@ def test_analyze_sqlite_corrupted_file(tmp_path: pathlib.Path) -> None:
     assert analysis.tables == []
     assert analysis.objects == []
     assert analysis.integrity_check is not None
-    assert "corrupted" in analysis.integrity_check.lower() or "file is not a database" in analysis.integrity_check.lower()
+    assert (
+        "corrupted" in analysis.integrity_check.lower()
+        or "file is not a database" in analysis.integrity_check.lower()
+    )
 
 
 # 8. WAL-Aware Pull Test
 def test_pull_sqlite_with_wal(tmp_path: pathlib.Path) -> None:
     devices = MagicMock()
+
     # Mock root staging pull
     def mock_pull(devs, serial, remote, local, timeout_s=60.0):
         local.parent.mkdir(parents=True, exist_ok=True)
@@ -259,9 +310,14 @@ def test_pull_sqlite_with_wal(tmp_path: pathlib.Path) -> None:
         return True
 
     from unittest.mock import patch
-    with patch("lockknife.modules.extraction.messaging.try_root_staging_pull", side_effect=mock_pull):
+
+    with patch(
+        "lockknife.modules.extraction.messaging.try_root_staging_pull", side_effect=mock_pull
+    ):
         dest = tmp_path / "extracted" / "msgstore.db"
-        success = _pull_sqlite_with_wal(devices, "device123", "/data/data/com.whatsapp/databases/msgstore.db", dest)
+        success = _pull_sqlite_with_wal(
+            devices, "device123", "/data/data/com.whatsapp/databases/msgstore.db", dest
+        )
         assert success is True
         assert dest.exists()
         assert (tmp_path / "extracted" / "msgstore.db-wal").exists()

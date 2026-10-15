@@ -40,9 +40,7 @@ def build_dag(steps: Sequence[StepDefinition]) -> PipelineDAG:
         step_deps = set(step.depends_on)
         for dep in step_deps:
             if dep not in step_map:
-                raise LockKnifeError(
-                    f"Step {step_id!r} depends on non-existent step {dep!r}"
-                )
+                raise LockKnifeError(f"Step {step_id!r} depends on non-existent step {dep!r}")
             dependents[dep].add(step_id)
         deps[step_id] = step_deps
 
@@ -89,9 +87,7 @@ def resolve_execution_tiers(dag: PipelineDAG) -> list[list[StepDefinition]]:
     while remaining:
         # Find all steps whose dependencies are completely satisfied
         current_tier_ids = [
-            sid
-            for sid, step in remaining.items()
-            if dag.dependencies[sid].issubset(satisfied)
+            sid for sid, step in remaining.items() if dag.dependencies[sid].issubset(satisfied)
         ]
 
         if not current_tier_ids:

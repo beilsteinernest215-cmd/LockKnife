@@ -50,7 +50,9 @@ def test_memory_store_truncation(tmp_path: pathlib.Path):
 
 
 def test_autocompact_context_trigger(tmp_path: pathlib.Path):
-    store = MemoryStore(case_dir=tmp_path, max_context_tokens=50)  # low token threshold to force compact
+    store = MemoryStore(
+        case_dir=tmp_path, max_context_tokens=50
+    )  # low token threshold to force compact
     goal = AgentGoal(objective="Investigation")
     working = WorkingMemory(goal=goal)
 

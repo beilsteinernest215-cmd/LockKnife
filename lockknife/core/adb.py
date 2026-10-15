@@ -163,9 +163,7 @@ class AdbClient:
                     else:
                         if proc.returncode != 0:
                             msg = (
-                                proc.stderr.strip()
-                                or proc.stdout.strip()
-                                or f"adb failed: {args}"
+                                proc.stderr.strip() or proc.stdout.strip() or f"adb failed: {args}"
                             )
                             raise ExternalToolError(msg)
                         return proc.stdout

@@ -15,7 +15,13 @@ from lockknife.core.pipeline.playbooks import (
 
 
 def test_builtin_playbooks_exist_and_are_valid_dags() -> None:
-    expected_playbooks = {"triage", "deep-forensics", "incident-response", "crypto-audit", "full-spectrum"}
+    expected_playbooks = {
+        "triage",
+        "deep-forensics",
+        "incident-response",
+        "crypto-audit",
+        "full-spectrum",
+    }
     assert set(BUILTIN_PLAYBOOKS.keys()) == expected_playbooks
 
     for name in expected_playbooks:

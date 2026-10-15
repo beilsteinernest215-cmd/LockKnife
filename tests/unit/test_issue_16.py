@@ -16,7 +16,9 @@ def test_app_context_has_selected_device_serial_attribute() -> None:
     assert app.selected_device_serial is None
 
 
-def test_tui_callback_credentials_with_real_app_context(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tui_callback_credentials_with_real_app_context(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config = LoadedConfig(config=LockKnifeConfig(), path=None)
     app = AppContext(config)
     # Target a device
@@ -30,7 +32,9 @@ def test_tui_callback_credentials_with_real_app_context(tmp_path: pathlib.Path, 
     monkeypatch.setattr(
         app.devices,
         "list_handles",
-        lambda: [DeviceHandle(serial="TARGET_DEV_123", adb_state="device", state=DeviceState.authorized)],
+        lambda: [
+            DeviceHandle(serial="TARGET_DEV_123", adb_state="device", state=DeviceState.authorized)
+        ],
     )
     monkeypatch.setattr(app.devices, "has_root", lambda s: True)
     monkeypatch.setattr(app.devices, "shell", lambda s, c, **kw: "mock_output")
@@ -67,7 +71,9 @@ def test_tui_callback_credentials_with_real_app_context(tmp_path: pathlib.Path, 
     assert json.loads(res_passkeys["data_json"])["serial"] == "TARGET_DEV_123"
 
 
-def test_tui_callback_credentials_without_selected_device_serial_attr(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tui_callback_credentials_without_selected_device_serial_attr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify that an app object without selected_device_serial does NOT crash with AttributeError."""
     import types
 
@@ -76,7 +82,9 @@ def test_tui_callback_credentials_without_selected_device_serial_attr(monkeypatc
 
     dummy_app = types.SimpleNamespace(
         devices=types.SimpleNamespace(
-            list_handles=lambda: [DeviceHandle(serial="DEV_999", adb_state="device", state=DeviceState.authorized)],
+            list_handles=lambda: [
+                DeviceHandle(serial="DEV_999", adb_state="device", state=DeviceState.authorized)
+            ],
             has_root=lambda s: True,
             shell=lambda s, c, **kw: "mock_output",
         ),
@@ -103,7 +111,9 @@ def test_tui_callback_credentials_param_serial_updates_app(monkeypatch: pytest.M
     monkeypatch.setattr(
         app.devices,
         "list_handles",
-        lambda: [DeviceHandle(serial="NEW_DEV_777", adb_state="device", state=DeviceState.authorized)],
+        lambda: [
+            DeviceHandle(serial="NEW_DEV_777", adb_state="device", state=DeviceState.authorized)
+        ],
     )
     monkeypatch.setattr(app.devices, "has_root", lambda s: True)
     monkeypatch.setattr(app.devices, "shell", lambda s, c, **kw: "mock_output")
@@ -113,5 +123,3 @@ def test_tui_callback_credentials_param_serial_updates_app(monkeypatch: pytest.M
     res = callback("credentials.pin", {"serial": "NEW_DEV_777", "length": 4})
     assert res["ok"] is True
     assert app.selected_device_serial == "NEW_DEV_777"
-
-

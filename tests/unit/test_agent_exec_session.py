@@ -41,7 +41,7 @@ def test_exec_session_manager_lifecycle():
 
 def test_exec_session_manager_close_all():
     manager = ExecSessionManager()
-    cmd = f"{sys.executable} -c \"import time; time.sleep(10)\""
+    cmd = f'{sys.executable} -c "import time; time.sleep(10)"'
     manager.start_session(command=cmd, session_id="sleep1", use_shell=True)
     manager.start_session(command=cmd, session_id="sleep2", use_shell=True)
 

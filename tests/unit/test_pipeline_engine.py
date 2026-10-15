@@ -14,7 +14,9 @@ from lockknife.core.pipeline.models import (
 
 def test_executor_plan(tmp_path: pathlib.Path) -> None:
     step1 = StepDefinition(step_id="s1", label="Step 1", action_id="act.1", category="core")
-    step2 = StepDefinition(step_id="s2", label="Step 2", action_id="act.2", category="core", depends_on=("s1",))
+    step2 = StepDefinition(
+        step_id="s2", label="Step 2", action_id="act.2", category="core", depends_on=("s1",)
+    )
     pb = PlaybookDefinition(
         name="test-plan",
         title="Test Plan",
@@ -23,7 +25,11 @@ def test_executor_plan(tmp_path: pathlib.Path) -> None:
         steps=(step1, step2),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-plan", target_serial="DEV-001", action_validator=lambda action, params: None)
+    executor = PipelineExecutor(
+        case_dir=tmp_path / "case-plan",
+        target_serial="DEV-001",
+        action_validator=lambda action, params: None,
+    )
     plan = executor.plan(pb)
 
     assert plan["playbook_name"] == "test-plan"
@@ -42,7 +48,9 @@ def test_executor_dry_run(tmp_path: pathlib.Path) -> None:
         steps=(step1,),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-dry", action_validator=lambda action, params: None)
+    executor = PipelineExecutor(
+        case_dir=tmp_path / "case-dry", action_validator=lambda action, params: None
+    )
     summary = executor.execute(pb, dry_run=True)
 
     assert summary.status == PipelineStatus.PENDING
@@ -67,7 +75,9 @@ def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> N
     # s3 fails fatally
     step3 = StepDefinition(step_id="s3", label="Step 3", action_id="act.3", category="core")
     # s4 depends on s3, so should be skipped!
-    step4 = StepDefinition(step_id="s4", label="Step 4", action_id="act.4", category="core", depends_on=("s3",))
+    step4 = StepDefinition(
+        step_id="s4", label="Step 4", action_id="act.4", category="core", depends_on=("s3",)
+    )
 
     pb = PlaybookDefinition(
         name="test-workflow",
@@ -77,7 +87,11 @@ def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> N
         steps=(step1, step2, step3, step4),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-exec", target_serial="DEV-1", action_validator=lambda action, params: None)
+    executor = PipelineExecutor(
+        case_dir=tmp_path / "case-exec",
+        target_serial="DEV-1",
+        action_validator=lambda action, params: None,
+    )
 
     # Mock dispatch callback
     def mock_dispatch(action: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -97,8 +111,8 @@ def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> N
 
     assert summary.total_steps == 4
     assert summary.completed_steps == 2  # s1 and s2 (via fallback)
-    assert summary.failed_steps == 1     # s3
-    assert summary.skipped_steps == 1    # s4
+    assert summary.failed_steps == 1  # s3
+    assert summary.skipped_steps == 1  # s4
     assert summary.status == PipelineStatus.PARTIAL
 
     records = {r.step_id: r for r in summary.step_records}
@@ -111,7 +125,9 @@ def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> N
 
 def test_executor_resumption(tmp_path: pathlib.Path) -> None:
     step1 = StepDefinition(step_id="s1", label="Step 1", action_id="act.1", category="core")
-    step2 = StepDefinition(step_id="s2", label="Step 2", action_id="act.2", category="core", depends_on=("s1",))
+    step2 = StepDefinition(
+        step_id="s2", label="Step 2", action_id="act.2", category="core", depends_on=("s1",)
+    )
 
     pb = PlaybookDefinition(
         name="test-resume",

@@ -36,7 +36,9 @@ def test_reflexion_engine_advances_milestone():
     engine = ReflexionEngine(plan)
 
     call = ToolInvocation(call_id="c1", tool_id="core.health", arguments={})
-    obs = ToolObservation(call_id="c1", tool_id="core.health", success=True, output={"status": "ok"})
+    obs = ToolObservation(
+        call_id="c1", tool_id="core.health", success=True, output={"status": "ok"}
+    )
 
     critique = engine.evaluate([call], [obs])
     assert critique.has_issues is False
