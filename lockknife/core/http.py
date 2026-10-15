@@ -357,10 +357,7 @@ def http_post_json(
     while True:
         attempt += 1
         _rate_limit(host, rate_limit_per_s)
-        conn_kwargs = {"timeout": timeout_s, "context": ctx}
-        if port is not None:
-            conn_kwargs["port"] = port
-        conn = http.client.HTTPSConnection(host, **conn_kwargs)
+        conn = http.client.HTTPSConnection(host, port=port, timeout=timeout_s, context=ctx)
         try:
             conn.request("POST", path, body=body, headers=hdrs)
             resp = conn.getresponse()
