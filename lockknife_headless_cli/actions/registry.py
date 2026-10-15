@@ -329,8 +329,8 @@ def _capability_for_action(action_id: str) -> CapabilityMetadata | None:
         status = "dependency-gated"
     return CapabilityMetadata(
         status=status,
-        requirements="Explicit case scope, target scope, lab mode, and operator confirmation.",
-        notes="Exploit actions are policy-gated and audited before live execution.",
+        requirements="Required external tools, target access, and authorization for the selected operation.",
+        notes="Research workflows may execute without repeated confirmation. PoC and preview results do not establish live access.",
     )
 
 
