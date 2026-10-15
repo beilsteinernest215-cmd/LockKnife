@@ -29,7 +29,13 @@ fn shared_catalog_has_unique_actions_and_fields_without_parse_loss() {
             assert!(action.fields.iter().all(|field| keys.insert(&field.key)));
         }
     }
-    assert_eq!(ids.len(), 121);
+    let expected_actions: usize = raw["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|module| module["actions"].as_array().unwrap().len())
+        .sum();
+    assert_eq!(ids.len(), expected_actions);
 }
 
 #[test]

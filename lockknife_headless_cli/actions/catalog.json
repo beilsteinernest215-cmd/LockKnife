@@ -4210,10 +4210,24 @@
           "confirm": false,
           "fields": [
             {
+              "key": "budget",
+              "label": "Session Decision Budget",
+              "kind": "number",
+              "default": 25,
+              "choices": []
+            },
+            {
               "key": "prompt",
               "label": "User Prompt",
               "kind": "text",
               "default": "What capabilities are available?",
+              "choices": []
+            },
+            {
+              "key": "mock",
+              "label": "Use Mock Provider",
+              "kind": "bool",
+              "default": false,
               "choices": []
             },
             {
@@ -4372,6 +4386,20 @@
               "label": "Playbook Name",
               "kind": "text",
               "default": "triage",
+              "choices": []
+            },
+            {
+              "key": "dry_run",
+              "label": "Preview Only",
+              "kind": "bool",
+              "default": false,
+              "choices": []
+            },
+            {
+              "key": "concurrency",
+              "label": "Concurrent Steps",
+              "kind": "number",
+              "default": 4,
               "choices": []
             },
             {

@@ -1,5 +1,13 @@
 pub(super) fn action_help_lines(action_id: &str) -> Vec<&'static str> {
     match action_id {
+        "agent.goal" | "agent.chat" => vec![
+            "Use a local model when evidence must remain on this machine; remote model requests include investigation context.",
+            "Mock mode simulates model decisions and is not a live investigation.",
+        ],
+        "agent.daemon" => vec!["The watcher runs while this application process remains open. Stop it when no longer needed."],
+        "agent.memory" => vec!["Choose the same case used for the investigation to review recorded facts and turns."],
+        "pipeline.list" | "pipeline.plan" => vec!["Inspect required device access and inputs before running the selected playbook."],
+        "pipeline.run" => vec!["Dry-run does not execute actions. Resume requires the same saved recipe and target.", "Cancellation waits for active synchronous actions to return before stopping."],
         "core.health" => vec![
             "Use this before blaming a workflow failure on evidence or target behavior.",
             "The result highlights baseline configuration, ADB visibility, and Rust-extension readiness.",

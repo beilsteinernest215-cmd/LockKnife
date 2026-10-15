@@ -1,5 +1,12 @@
 pub(super) fn action_description(action_id: &str) -> Option<&'static str> {
     match action_id {
+        "agent.goal" => Some("Run a budgeted autonomous investigation with case-linked tools and persistent observations."),
+        "agent.chat" => Some("Discuss the investigation and execute tool-assisted follow-up work with the configured model."),
+        "agent.daemon" => Some("Start, stop or inspect the device watcher in this application session."),
+        "agent.memory" => Some("Search facts and observations recorded in the selected case."),
+        "pipeline.list" => Some("List available investigation playbooks and their steps."),
+        "pipeline.plan" => Some("Validate and inspect a playbook without running its actions."),
+        "pipeline.run" => Some("Run or resume a playbook and record accurate per-step outcomes."),
         "core.health" => Some(
             "Run the baseline environment checks the TUI depends on before deeper operator workflows.",
         ),

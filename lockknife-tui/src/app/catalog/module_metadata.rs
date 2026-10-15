@@ -2,6 +2,8 @@ use super::super::CapabilityMetadata;
 
 pub(super) fn module_description(module_id: &str) -> Option<&'static str> {
     match module_id {
+        "agent" => Some("Run goal-driven investigations and chat with a local or remote model using case-linked tools and memory."),
+        "pipeline" => Some("Inspect and run repeatable investigation playbooks with checkpoints and evidence-linked results."),
         "credentials" => Some(
             "Recover or inspect lock-screen, Wi-Fi, and keystore secrets from the device.",
         ),
@@ -53,6 +55,14 @@ pub(super) fn module_description(module_id: &str) -> Option<&'static str> {
 
 pub(super) fn module_help_lines(module_id: &str) -> Vec<&'static str> {
     match module_id {
+        "agent" => vec![
+            "Configure your model endpoint before starting a goal or chat. Remote endpoints receive the supplied investigation context.",
+            "Autonomous mode can run host and device commands. Use a case and decision budget suited to your authorized research.",
+        ],
+        "pipeline" => vec![
+            "Inspect the plan or use dry-run before starting a playbook. A preview does not acquire evidence or complete any steps.",
+            "Resume reuses a matching saved recipe and target. Partial and failed results require review.",
+        ],
         "credentials" => vec![
             "These actions are device-backed and are best run with the correct device already selected.",
             "Use them early when credential recovery may unlock richer later extraction steps.",
@@ -122,6 +132,16 @@ pub(super) fn module_help_lines(module_id: &str) -> Vec<&'static str> {
 
 pub(super) fn module_capability_metadata(module_id: &str) -> Option<CapabilityMetadata> {
     match module_id {
+        "agent" => Some(CapabilityMetadata {
+            status: "dependency-gated",
+            requirements: "configured model endpoint; device actions require adb and target access",
+            notes: "Goals, tool execution, delegation and case memory share a decision budget. Model conclusions require evidence review.",
+        }),
+        "pipeline" => Some(CapabilityMetadata {
+            status: "functional",
+            requirements: "requirements of the selected playbook's actions",
+            notes: "Validated playbooks support previews, result references and target-bound resumable checkpoints.",
+        }),
         "credentials" => Some(CapabilityMetadata {
             status: "best-effort",
             requirements: "adb + device access",
