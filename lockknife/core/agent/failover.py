@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Any
 
-from lockknife.core.agent.models import ModelDecision
+from lockknife.core.agent.models import DecisionKind, ModelDecision
 from lockknife.core.agent.provider import LLMProvider
 
 logger = logging.getLogger("lockknife.agent.failover")
@@ -51,9 +51,8 @@ class FailoverProvider:
                 )
             else:
                 remaining = int(self.cooldown_s - (now - self.last_tripped_at))
-                return ModelDecision.finish(
+                return ModelDecision.failure(
                     f"Circuit breaker tripped: Model requests halted due to excessive consecutive provider failures (cooldown remaining: {remaining}s).",
-                    reasoning="Circuit breaker active.",
                 )
 
         last_error = ""
@@ -62,11 +61,7 @@ class FailoverProvider:
             try:
                 decision = provider.complete(messages, tools, system_prompt)
 
-                # Check if decision text indicates an API-level error
-                if decision.is_terminal and any(
-                    err in decision.text.lower()
-                    for err in ("llm api error", "provider connection failure", "quota exceeded")
-                ):
+                if decision.kind == DecisionKind.ERROR:
                     logger.warning(
                         "Provider #%d failed with API error: %s. Failing over...",
                         idx + 1,
@@ -82,9 +77,7 @@ class FailoverProvider:
                 return decision
 
             except Exception as exc:
-                logger.warning(
-                    "Provider #%d raised exception: %s. Failing over...", idx + 1, exc
-                )
+                logger.warning("Provider #%d raised exception: %s. Failing over...", idx + 1, exc)
                 last_error = str(exc)
                 self.failover_count += 1
                 continue
@@ -94,13 +87,13 @@ class FailoverProvider:
         if self.consecutive_errors >= self.max_consecutive_errors:
             self.circuit_tripped = True
             self.last_tripped_at = time.time()
-            logger.critical("Circuit breaker tripped: %d consecutive failures.", self.consecutive_errors)
-            return ModelDecision.finish(
+            logger.critical(
+                "Circuit breaker tripped: %d consecutive failures.", self.consecutive_errors
+            )
+            return ModelDecision.failure(
                 f"Circuit breaker tripped after {self.consecutive_errors} consecutive failures: {last_error}",
-                reasoning="All providers exhausted and threshold reached.",
             )
 
-        return ModelDecision.finish(
+        return ModelDecision.failure(
             f"All providers in failover ladder failed. Last error: {last_error}",
-            reasoning="Failover ladder exhausted.",
         )

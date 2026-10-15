@@ -7,6 +7,7 @@ import os
 import pathlib
 import tempfile
 import time
+import uuid
 from typing import Any
 
 from lockknife.core._case_store import is_case_workspace
@@ -53,7 +54,7 @@ class ResearcherPolicy:
         target_dir = case_dir
         if target_dir is None:
             base = pathlib.Path(os.getenv("LOCKKNIFE_CASES_DIR") or tempfile.gettempdir())
-            timestamp = int(time.time())
+            timestamp = uuid.uuid4().hex
             target_dir = base / f"lockknife_case_{timestamp}"
 
         target_dir = pathlib.Path(target_dir).resolve()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -29,6 +28,28 @@ class DeviceHeartbeatDaemon:
         self._known_devices: dict[str, AdbDevice] = {}
         self._running = False
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.last_result: dict[str, Any] | None = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self.run_forever, daemon=True)
+        self._thread.start()
+
+    def status(self) -> dict[str, Any]:
+        alive = self._thread is not None and self._thread.is_alive()
+        return {
+            "status": "stopping"
+            if alive and self._stop_event.is_set()
+            else "active"
+            if alive
+            else "stopped",
+            "interval_s": self.interval_s,
+            "last_result": self.last_result,
+        }
 
     def tick(self) -> dict[str, Any]:
         """Execute one polling tick to check device state."""
@@ -43,7 +64,9 @@ class DeviceHeartbeatDaemon:
             # Check for new or updated devices
             for serial, device in current_devices.items():
                 if serial not in self._known_devices:
-                    logger.info("Proactive Heartbeat: Device attached: %s (%s)", serial, device.model)
+                    logger.info(
+                        "Proactive Heartbeat: Device attached: %s (%s)", serial, device.model
+                    )
                     events.append({"event": "attached", "device": serial, "model": device.model})
                     if self.on_device_attached:
                         try:
@@ -73,12 +96,12 @@ class DeviceHeartbeatDaemon:
         ticks = 0
 
         try:
-            while self._running:
-                self.tick()
+            while not self._stop_event.is_set():
+                self.last_result = self.tick()
                 ticks += 1
                 if max_ticks is not None and ticks >= max_ticks:
                     break
-                time.sleep(self.interval_s)
+                self._stop_event.wait(self.interval_s)
         except KeyboardInterrupt:
             logger.info("Heartbeat loop stopped by operator.")
         finally:
@@ -86,3 +109,6 @@ class DeviceHeartbeatDaemon:
 
     def stop(self) -> None:
         self._running = False
+        self._stop_event.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=2.0)

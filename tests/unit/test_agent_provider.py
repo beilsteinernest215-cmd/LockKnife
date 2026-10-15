@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -56,7 +57,7 @@ def test_openai_compatible_provider_parses_tool_calls():
                             "id": "call_123",
                             "type": "function",
                             "function": {
-                                "name": "core.health",
+                                "name": "lk_" + hashlib.sha256(b"core.health").hexdigest()[:60],
                                 "arguments": json.dumps({"detailed": True}),
                             },
                         }
@@ -71,7 +72,10 @@ def test_openai_compatible_provider_parses_tool_calls():
     mock_resp.__enter__.return_value = mock_resp
 
     with patch("urllib.request.urlopen", return_value=mock_resp):
-        decision = provider.complete([{"role": "user", "content": "run audit"}])
+        decision = provider.complete(
+            [{"role": "user", "content": "run audit"}],
+            tools=[{"type": "function", "function": {"name": "core.health"}}],
+        )
         assert decision.is_tool_call
         assert len(decision.tool_calls) == 1
         assert decision.tool_calls[0].call_id == "call_123"

@@ -1,8 +1,70 @@
 from __future__ import annotations
 
+import atexit
+import contextlib
+import dataclasses
+import hashlib
 import json
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from typing import Any, cast
+
+_daemon: Any = None
+_daemon_lock = threading.Lock()
+_CHAT_LIMIT = 8
+_CHAT_IDLE_SECONDS = 1800
+_chat_lock = threading.RLock()
+
+
+@dataclasses.dataclass
+class _ChatSession:
+    runtime: Any
+    owner: Any
+    last_used: float = dataclasses.field(default_factory=time.monotonic)
+    lock: Any = dataclasses.field(default_factory=threading.Lock)
+    users: int = 0
+
+
+_chat_sessions: OrderedDict[tuple[Any, ...], _ChatSession] = OrderedDict()
+
+
+def _close_chat_sessions() -> None:
+    with _chat_lock:
+        for session in _chat_sessions.values():
+            session.runtime.close()
+        _chat_sessions.clear()
+
+
+atexit.register(_close_chat_sessions)
+
+
+@contextlib.contextmanager
+def _chat_runtime(key: tuple[Any, ...], owner: Any, factory: Callable[[], Any]):
+    with _chat_lock:
+        now = time.monotonic()
+        for old_key, entry in list(_chat_sessions.items()):
+            if not entry.users and now - entry.last_used >= _CHAT_IDLE_SECONDS:
+                _chat_sessions.pop(old_key).runtime.close()
+        session = _chat_sessions.get(key)
+        if session is None:
+            if len(_chat_sessions) >= _CHAT_LIMIT:
+                oldest = next((k for k, entry in _chat_sessions.items() if not entry.users), None)
+                if oldest is None:
+                    raise RuntimeError("All chat sessions are busy")
+                _chat_sessions.pop(oldest).runtime.close()
+            session = _ChatSession(factory(), owner)
+            _chat_sessions[key] = session
+        session.users += 1
+        _chat_sessions.move_to_end(key)
+    try:
+        with session.lock:
+            yield session.runtime
+    finally:
+        with _chat_lock:
+            session.users -= 1
+            session.last_used = time.monotonic()
 
 
 def _safe_int(val: Any, default: int) -> int:
@@ -23,6 +85,7 @@ def _safe_bool(val: Any, default: bool) -> bool:
 
 
 def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[str, Any] | None:
+    global _daemon
     pathlib = cb.pathlib
     _ok = cast(Callable[[Any, str], dict[str, Any]], cb._ok)
     _err = cast(Callable[[str], dict[str, Any]], cb._err)
@@ -59,16 +122,22 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
         policy = ResearcherPolicy(unrestricted=unrestricted, auto_provision_case=True)
 
         if mock:
-            provider = DeterministicMockProvider([
-                ModelDecision.call_tools(
-                    [ToolInvocation(call_id="call_triage", tool_id="core.health", arguments={})],
-                    reasoning="Initiating triage.",
-                ),
-                ModelDecision.finish(
-                    f"Completed goal: {objective}",
-                    reasoning="Goal finished.",
-                ),
-            ])
+            provider = DeterministicMockProvider(
+                [
+                    ModelDecision.call_tools(
+                        [
+                            ToolInvocation(
+                                call_id="call_triage", tool_id="core.health", arguments={}
+                            )
+                        ],
+                        reasoning="Initiating triage.",
+                    ),
+                    ModelDecision.finish(
+                        f"Completed goal: {objective}",
+                        reasoning="Goal finished.",
+                    ),
+                ]
+            )
         else:
             cfg = ProviderConfig.from_env()
             if model:
@@ -82,6 +151,10 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
             case_dir=case_dir_path,
         )
         result = runtime.run()
+        if result.status.value != "completed":
+            failure = _err(result.error or result.final_response)
+            failure["data_json"] = json.dumps(result.to_dict())
+            return failure
         return _ok(
             result.to_dict(),
             f"Agent goal completed with status: {result.status.value}",
@@ -90,34 +163,51 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
     if action == "agent.chat":
         prompt = params.get("prompt") or params.get("message") or "Status check"
         case_dir_path = _path_param(params.get("case_dir"))
-        target_device = _opt(params.get("serial"))
+        target_device = _opt(params.get("serial")) or _opt(params.get("target_device"))
         model = _opt(params.get("model"))
-        mock = _safe_bool(params.get("mock"), True)
+        mock = _safe_bool(params.get("mock"), False)
 
-        goal = AgentGoal(
-            objective=prompt,
-            target_device=target_device,
-            budget_iterations=5,
+        budget = max(1, _safe_int(params.get("budget"), 25))
+        cfg = ProviderConfig.from_env()
+        if model:
+            cfg = dataclasses.replace(cfg, model_name=model)
+        key = (
+            id(app),
+            str(case_dir_path.resolve()) if case_dir_path is not None else None,
+            target_device,
+            cfg.model_name,
+            cfg.api_base,
+            hashlib.sha256(cfg.api_key.encode()).hexdigest(),
+            mock,
+            budget,
         )
-        policy = ResearcherPolicy(unrestricted=True, auto_provision_case=True)
 
-        if mock:
-            provider = DeterministicMockProvider([
-                ModelDecision.finish(f"Echo response to: '{prompt}'", reasoning="Chat reply.")
-            ])
-        else:
-            cfg = ProviderConfig.from_env()
-            if model:
-                cfg = ProviderConfig(api_base=cfg.api_base, api_key=cfg.api_key, model_name=model)
-            provider = OpenAICompatibleProvider(cfg)
+        def create_chat_runtime() -> Any:
+            provider = (
+                DeterministicMockProvider(
+                    decision_hook=lambda messages: ModelDecision.finish(
+                        f"Echo response to: '{next(m['content'] for m in reversed(messages) if m['role'] == 'user')}'"
+                    )
+                )
+                if mock
+                else OpenAICompatibleProvider(cfg)
+            )
+            return AutonomousRuntime(
+                goal=AgentGoal(
+                    objective="Interactive security research session",
+                    target_device=target_device,
+                    budget_iterations=budget,
+                ),
+                provider=provider,
+                case_dir=case_dir_path,
+                policy=ResearcherPolicy(unrestricted=True, auto_provision_case=True),
+            )
 
-        runtime = AutonomousRuntime(
-            goal=goal,
-            provider=provider,
-            policy=policy,
-            case_dir=case_dir_path,
-        )
-        response = runtime.chat_step(prompt)
+        try:
+            with _chat_runtime(key, app, create_chat_runtime) as runtime:
+                response = runtime.chat_step(prompt)
+        except Exception as exc:
+            return _err(str(exc))
         return _ok(
             {"response": response, "prompt": prompt},
             "Agent response generated",
@@ -125,18 +215,21 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
 
     if action == "agent.daemon":
         daemon_action = (params.get("action") or "status").lower()
-        serial = _opt(params.get("serial"))
         interval = _safe_int(params.get("interval"), 30)
-
-        daemon = DeviceHeartbeatDaemon(interval_s=float(interval))
-        tick_res = daemon.tick()
+        if daemon_action not in {"start", "stop", "status"}:
+            return _err(f"Unknown daemon action: {daemon_action}")
+        with _daemon_lock:
+            if daemon_action == "start":
+                if _daemon is None or _daemon.status()["status"] == "stopped":
+                    _daemon = DeviceHeartbeatDaemon(interval_s=float(interval))
+                    _daemon.start()
+            elif daemon_action == "stop" and _daemon is not None:
+                _daemon.stop()
+            state = _daemon.status() if _daemon is not None else {"status": "stopped"}
         return _ok(
             {
                 "daemon_action": daemon_action,
-                "target_device": serial,
-                "interval_s": interval,
-                "status": "active" if tick_res.get("ok") else "ready",
-                "events": tick_res.get("events", []),
+                **state,
             },
             f"Agent daemon action '{daemon_action}' executed",
         )
@@ -152,13 +245,9 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
         if query:
             q_lower = query.lower()
             filtered_facts = {
-                k: v
-                for k, v in facts.items()
-                if q_lower in k.lower() or q_lower in str(v).lower()
+                k: v for k, v in facts.items() if q_lower in k.lower() or q_lower in str(v).lower()
             }
-            filtered_turns = [
-                t for t in turns if q_lower in json.dumps(t).lower()
-            ][:limit]
+            filtered_turns = [t for t in turns if q_lower in json.dumps(t).lower()][:limit]
         else:
             filtered_facts = facts
             filtered_turns = turns[-limit:] if turns else []

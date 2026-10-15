@@ -19,6 +19,7 @@ class MilestoneStatus(str, enum.Enum):
 @dataclasses.dataclass
 class PlanMilestone:
     """A discrete milestone within an autonomous investigation plan."""
+
     milestone_id: str
     title: str
     description: str
@@ -149,7 +150,10 @@ class GoalPlan:
         return False
 
     def is_fully_completed(self) -> bool:
-        return all(m.status in (MilestoneStatus.COMPLETED, MilestoneStatus.SKIPPED) for m in self.milestones)
+        return all(
+            m.status in (MilestoneStatus.COMPLETED, MilestoneStatus.SKIPPED)
+            for m in self.milestones
+        )
 
     def format_plan_context(self) -> str:
         """Format the plan as a high-density status markdown table for LLM prompt context."""

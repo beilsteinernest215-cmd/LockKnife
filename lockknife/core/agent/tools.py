@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from lockknife.core.adb import AdbClient
+from lockknife.core.agent._workspace_fs import WorkspaceFiles
 from lockknife.core.agent.exec_session import ExecSessionManager
 from lockknife.core.agent.models import ToolInvocation, ToolObservation
 
@@ -31,6 +32,7 @@ class AgentToolRegistry:
         exec_session_manager: ExecSessionManager | None = None,
     ) -> None:
         self.case_dir = pathlib.Path(case_dir).resolve()
+        self._files = WorkspaceFiles(self.case_dir)
         self.target_serial = target_serial
         self._action_callback = action_callback
         self.subagent_manager = subagent_manager
@@ -69,172 +71,211 @@ class AgentToolRegistry:
         specs: list[dict[str, Any]] = []
 
         # 1. Forensic & Agent Primitives
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "device_shell",
-                "description": "Execute a raw shell command on the connected Android target via ADB.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "The shell command to run on device (e.g. 'getprop ro.build.version.release', 'pm list packages').",
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "device_shell",
+                    "description": "Execute a raw shell command on the connected Android target via ADB.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The shell command to run on device (e.g. 'getprop ro.build.version.release', 'pm list packages').",
+                            },
+                            "serial": {
+                                "type": "string",
+                                "description": "Target device serial (optional, uses active device if omitted).",
+                            },
                         },
-                        "serial": {
-                            "type": "string",
-                            "description": "Target device serial (optional, uses active device if omitted).",
+                        "required": ["command"],
+                    },
+                },
+            }
+        )
+
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "case_read_file",
+                    "description": "Read the contents of an artifact, SQLite export, log, or note inside the case workspace.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "relative_path": {
+                                "type": "string",
+                                "description": "Path relative to the case workspace root (e.g. 'evidence/sms.json', '.agent/facts.json').",
+                            },
                         },
+                        "required": ["relative_path"],
                     },
-                    "required": ["command"],
                 },
-            },
-        })
+            }
+        )
 
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "case_read_file",
-                "description": "Read the contents of an artifact, SQLite export, log, or note inside the case workspace.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "relative_path": {
-                            "type": "string",
-                            "description": "Path relative to the case workspace root (e.g. 'evidence/sms.json', '.agent/facts.json').",
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "case_write_file",
+                    "description": "Write investigator notes, decoded payloads, or extracted evidence to the case workspace.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "relative_path": {
+                                "type": "string",
+                                "description": "Path relative to case workspace root (e.g. 'notes/findings.md').",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Text content to save.",
+                            },
                         },
+                        "required": ["relative_path", "content"],
                     },
-                    "required": ["relative_path"],
                 },
-            },
-        })
+            }
+        )
 
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "case_write_file",
-                "description": "Write investigator notes, decoded payloads, or extracted evidence to the case workspace.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "relative_path": {
-                            "type": "string",
-                            "description": "Path relative to case workspace root (e.g. 'notes/findings.md').",
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "record_fact",
+                    "description": "Store a discovered persistent semantic fact (e.g. Android version, vulnerable app, extracted key) into case memory.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "key": {
+                                "type": "string",
+                                "description": "Key name (e.g. 'target_os', 'package_name', 'cve_found').",
+                            },
+                            "value": {
+                                "type": "string",
+                                "description": "Fact value or JSON string.",
+                            },
                         },
-                        "content": {
-                            "type": "string",
-                            "description": "Text content to save.",
+                        "required": ["key", "value"],
+                    },
+                },
+            }
+        )
+
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "delegate_subagent",
+                    "description": "Spawn an autonomous subagent for a focused, parallel deep-dive investigation.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "objective": {
+                                "type": "string",
+                                "description": "Specific sub-mission objective for the delegate agent.",
+                            },
+                            "target_device": {
+                                "type": "string",
+                                "description": "Optional specific device serial for the subagent.",
+                            },
+                            "budget_iterations": {
+                                "type": "integer",
+                                "description": "Maximum turn budget for subagent (default: 10).",
+                            },
                         },
+                        "required": ["objective"],
                     },
-                    "required": ["relative_path", "content"],
                 },
-            },
-        })
+            }
+        )
 
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "record_fact",
-                "description": "Store a discovered persistent semantic fact (e.g. Android version, vulnerable app, extracted key) into case memory.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string", "description": "Key name (e.g. 'target_os', 'package_name', 'cve_found')."},
-                        "value": {"type": "string", "description": "Fact value or JSON string."},
-                    },
-                    "required": ["key", "value"],
-                },
-            },
-        })
-
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "delegate_subagent",
-                "description": "Spawn an autonomous subagent for a focused, parallel deep-dive investigation.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "objective": {
-                            "type": "string",
-                            "description": "Specific sub-mission objective for the delegate agent.",
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "exec_session_start",
+                    "description": "Start a persistent, stateful interactive background process (e.g. interactive shell, logcat stream, tcpdump).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": "The command line string to run.",
+                            },
+                            "session_id": {
+                                "type": "string",
+                                "description": "Optional custom session ID.",
+                            },
                         },
-                        "target_device": {
-                            "type": "string",
-                            "description": "Optional specific device serial for the subagent.",
+                        "required": ["command"],
+                    },
+                },
+            }
+        )
+
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "exec_session_write",
+                    "description": "Send stdin input text to an active interactive background session.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "session_id": {"type": "string", "description": "Target session ID."},
+                            "input_text": {
+                                "type": "string",
+                                "description": "Input text to write to process stdin.",
+                            },
                         },
-                        "budget_iterations": {
-                            "type": "integer",
-                            "description": "Maximum turn budget for subagent (default: 10).",
+                        "required": ["session_id", "input_text"],
+                    },
+                },
+            }
+        )
+
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "exec_session_poll",
+                    "description": "Poll and drain buffered output lines from an active background session.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "session_id": {"type": "string", "description": "Target session ID."},
+                            "wait_s": {
+                                "type": "number",
+                                "description": "Seconds to wait for new output (default: 0.5).",
+                            },
                         },
+                        "required": ["session_id"],
                     },
-                    "required": ["objective"],
                 },
-            },
-        })
+            }
+        )
 
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "exec_session_start",
-                "description": "Start a persistent, stateful interactive background process (e.g. interactive shell, logcat stream, tcpdump).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {"type": "string", "description": "The command line string to run."},
-                        "session_id": {"type": "string", "description": "Optional custom session ID."},
+        specs.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "exec_session_close",
+                    "description": "Terminate an active background session cleanly.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "session_id": {
+                                "type": "string",
+                                "description": "Target session ID to close.",
+                            },
+                        },
+                        "required": ["session_id"],
                     },
-                    "required": ["command"],
                 },
-            },
-        })
-
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "exec_session_write",
-                "description": "Send stdin input text to an active interactive background session.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Target session ID."},
-                        "input_text": {"type": "string", "description": "Input text to write to process stdin."},
-                    },
-                    "required": ["session_id", "input_text"],
-                },
-            },
-        })
-
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "exec_session_poll",
-                "description": "Poll and drain buffered output lines from an active background session.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Target session ID."},
-                        "wait_s": {"type": "number", "description": "Seconds to wait for new output (default: 0.5)."},
-                    },
-                    "required": ["session_id"],
-                },
-            },
-        })
-
-        specs.append({
-            "type": "function",
-            "function": {
-                "name": "exec_session_close",
-                "description": "Terminate an active background session cleanly.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "session_id": {"type": "string", "description": "Target session ID to close."},
-                    },
-                    "required": ["session_id"],
-                },
-            },
-        })
+            }
+        )
 
         # 2. Dynamic LockKnife Action Catalog
         try:
@@ -272,18 +313,21 @@ class AgentToolRegistry:
                     if field.get("required"):
                         required_fields.append(key)
 
-                specs.append({
-                    "type": "function",
-                    "function": {
-                        "name": action_id,
-                        "description": meta.get("description") or f"LockKnife capability: {meta.get('label', action_id)}",
-                        "parameters": {
-                            "type": "object",
-                            "properties": properties,
-                            "required": required_fields,
+                specs.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": action_id,
+                            "description": meta.get("description")
+                            or f"LockKnife capability: {meta.get('label', action_id)}",
+                            "parameters": {
+                                "type": "object",
+                                "properties": properties,
+                                "required": required_fields,
+                            },
                         },
-                    },
-                })
+                    }
+                )
         except Exception as exc:
             logger.warning("Could not load dynamic action catalog metadata: %s", exc)
 
@@ -324,25 +368,8 @@ class AgentToolRegistry:
                 )
 
             if tool_id == "case_read_file":
-                rel = str(args.get("relative_path") or "").strip().lstrip("/")
-                target = (self.case_dir / rel).resolve()
-                if not str(target).startswith(str(self.case_dir)):
-                    return ToolObservation(
-                        call_id=invocation.call_id,
-                        tool_id=tool_id,
-                        success=False,
-                        error=f"Access denied: path {rel} escapes case workspace",
-                        duration_s=time.perf_counter() - start_time,
-                    )
-                if not target.exists():
-                    return ToolObservation(
-                        call_id=invocation.call_id,
-                        tool_id=tool_id,
-                        success=False,
-                        error=f"File not found: {rel}",
-                        duration_s=time.perf_counter() - start_time,
-                    )
-                content = target.read_text(encoding="utf-8", errors="replace")
+                rel = str(args.get("relative_path") or "").strip()
+                content = self._files.read_text(rel)
                 return ToolObservation(
                     call_id=invocation.call_id,
                     tool_id=tool_id,
@@ -352,19 +379,10 @@ class AgentToolRegistry:
                 )
 
             if tool_id == "case_write_file":
-                rel = str(args.get("relative_path") or "").strip().lstrip("/")
+                rel = str(args.get("relative_path") or "").strip()
                 content = str(args.get("content") or "")
-                target = (self.case_dir / rel).resolve()
-                if not str(target).startswith(str(self.case_dir)):
-                    return ToolObservation(
-                        call_id=invocation.call_id,
-                        tool_id=tool_id,
-                        success=False,
-                        error=f"Access denied: path {rel} escapes case workspace",
-                        duration_s=time.perf_counter() - start_time,
-                    )
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
+                self._files.write_text(rel, content)
+                target = self.case_dir.joinpath(rel)
                 return ToolObservation(
                     call_id=invocation.call_id,
                     tool_id=tool_id,
@@ -387,7 +405,7 @@ class AgentToolRegistry:
                     duration_s=time.perf_counter() - start_time,
                 )
 
-            if tool_id == "delegate_subagent":
+            if tool_id in {"delegate_subagent", "agent.goal", "agent.chat"}:
                 if self.subagent_manager is None:
                     return ToolObservation(
                         call_id=invocation.call_id,
@@ -397,9 +415,17 @@ class AgentToolRegistry:
                         duration_s=time.perf_counter() - start_time,
                     )
                 sub_res = self.subagent_manager.spawn_and_run(
-                    objective=str(args.get("objective") or ""),
-                    target_device=str(args.get("target_device") or self.target_serial or "") or None,
-                    budget_iterations=int(args.get("budget_iterations", 10)),
+                    objective=str(
+                        args.get("objective")
+                        or args.get("prompt")
+                        or args.get("message")
+                        or "Investigate the current target"
+                    ),
+                    target_device=str(
+                        args.get("target_device") or args.get("serial") or self.target_serial or ""
+                    )
+                    or None,
+                    budget_iterations=int(args.get("budget_iterations", args.get("budget", 10))),
                 )
                 return ToolObservation(
                     call_id=invocation.call_id,
@@ -477,7 +503,9 @@ class AgentToolRegistry:
                     raw_res = cb(tool_id, params)
             else:
                 raw_res = cb(tool_id, params)
-            is_ok = bool(raw_res.get("ok", True)) if isinstance(raw_res, dict) else True
+            is_ok = (
+                isinstance(raw_res, dict) and raw_res.get("ok") is True and not raw_res.get("error")
+            )
             err = raw_res.get("error") if isinstance(raw_res, dict) else None
 
             return ToolObservation(

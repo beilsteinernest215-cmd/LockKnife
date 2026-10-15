@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import codecs
 import collections
 import logging
+import os
+import select
+import shlex
+import signal
 import subprocess  # nosec B404
 import threading
 import time
@@ -9,6 +14,7 @@ import uuid
 from typing import Any
 
 logger = logging.getLogger("lockknife.agent.exec_session")
+_POSIX = os.name == "posix"
 
 
 class ExecSession:
@@ -22,13 +28,19 @@ class ExecSession:
         self.last_active_at = time.time()
         self._output_buffer: collections.deque[str] = collections.deque(maxlen=2000)
         self._lock = threading.Lock()
+        self._input_lock = threading.Lock()
+        if _POSIX and self.proc.stdin is not None:
+            os.set_blocking(self.proc.stdin.fileno(), False)
         self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._reader_thread.start()
 
     def _read_stdout(self) -> None:
         try:
-            if self.proc.stdout:
-                for line in iter(self.proc.stdout.readline, ""):
+            stdout = self.proc.stdout
+            if stdout is not None:
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                for chunk in iter(lambda: os.read(stdout.fileno(), 1024), b""):
+                    line = decoder.decode(chunk)
                     with self._lock:
                         self._output_buffer.append(line)
                         self.last_active_at = time.time()
@@ -42,13 +54,61 @@ class ExecSession:
         try:
             if not text.endswith("\n"):
                 text += "\n"
-            self.proc.stdin.write(text)
-            self.proc.stdin.flush()
+            data = text.encode("utf-8")
+            if len(data) > 65536:
+                return False
+            if not _POSIX:
+                return self._write_blocking_pipe(text)
+            with self._input_lock:
+                deadline = time.monotonic() + 1.0
+                fd = self.proc.stdin.fileno()
+                while data:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not select.select([], [fd], [], remaining)[1]:
+                        return False
+                    try:
+                        data = data[os.write(fd, data) :]
+                    except BlockingIOError:
+                        continue
             self.last_active_at = time.time()
             return True
         except Exception as exc:
             logger.warning("Failed to write to ExecSession %s stdin: %s", self.session_id, exc)
             return False
+
+    def _write_blocking_pipe(self, text: str) -> bool:
+        """Windows pipes cannot be passed to select; bound the caller's wait instead."""
+        stream = self.proc.stdin
+        if stream is None or not self._input_lock.acquire(blocking=False):
+            return False
+        completed = threading.Event()
+        success = []
+
+        def write() -> None:
+            try:
+                stream.write(text)
+                stream.flush()
+                success.append(True)
+            except (OSError, ValueError):
+                pass
+            finally:
+                self._input_lock.release()
+                completed.set()
+
+        threading.Thread(target=write, daemon=True).start()
+        return completed.wait(timeout=1.0) and bool(success)
+
+    def _terminate(self, *, force: bool = False) -> None:
+        if _POSIX:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL if force else signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        elif self.proc.poll() is None:
+            if force:
+                self.proc.kill()
+            else:
+                self.proc.terminate()
 
     def poll_output(self, wait_s: float = 0.5) -> dict[str, Any]:
         """Poll and drain buffered output lines since last read."""
@@ -73,15 +133,22 @@ class ExecSession:
 
     def close(self) -> None:
         """Terminate the running process cleanly."""
+        self._terminate()
         if self.proc.poll() is None:
             try:
-                self.proc.terminate()
                 self.proc.wait(timeout=1.0)
             except Exception:
                 try:
-                    self.proc.kill()
+                    self._terminate(force=True)
+                    self.proc.wait(timeout=1.0)
                 except Exception:
                     pass
+        # The group may outlive its original parent, including shell-launched children.
+        self._terminate(force=True)
+        for stream in (self.proc.stdin, self.proc.stdout):
+            if stream is not None:
+                stream.close()
+        self._reader_thread.join(timeout=1.0)
 
 
 class ExecSessionManager:
@@ -101,10 +168,12 @@ class ExecSessionManager:
         with self._lock:
             if sid in self._sessions:
                 return {"ok": False, "error": f"Session {sid} already exists", "session_id": sid}
+            if len(self._sessions) >= 32:
+                return {"ok": False, "error": "Session limit reached", "session_id": sid}
 
             try:
                 # Use shlex or list if not shell
-                args = command if use_shell else command.split()
+                args = command if use_shell or not _POSIX else shlex.split(command)
                 proc = subprocess.Popen(  # nosec B603 B602
                     args,
                     stdin=subprocess.PIPE,
@@ -113,13 +182,14 @@ class ExecSessionManager:
                     text=True,
                     bufsize=1,
                     shell=use_shell,
+                    start_new_session=_POSIX,
                 )
                 session = ExecSession(sid, command, proc)
                 self._sessions[sid] = session
-                logger.info("Started ExecSession %s: %s", sid, command)
+                logger.info("Started ExecSession %s", sid)
                 return {"ok": True, "session_id": sid, "command": command}
             except Exception as exc:
-                logger.error("Failed to start ExecSession %s: %s", sid, exc)
+                logger.error("Failed to start ExecSession %s (%s)", sid, type(exc).__name__)
                 return {"ok": False, "error": str(exc), "session_id": sid}
 
     def write_session(self, session_id: str, input_text: str) -> dict[str, Any]:
@@ -128,7 +198,11 @@ class ExecSessionManager:
         if not sess:
             return {"ok": False, "error": f"Session {session_id} not found"}
         ok = sess.write_input(input_text)
-        return {"ok": ok, "session_id": session_id}
+        return {
+            "ok": ok,
+            "session_id": session_id,
+            "error": None if ok else "Session closed, input exceeded 64 KiB, or write timed out",
+        }
 
     def poll_session(self, session_id: str, wait_s: float = 0.5) -> dict[str, Any]:
         with self._lock:

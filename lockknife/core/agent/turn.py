@@ -22,6 +22,7 @@ from lockknife.core.agent.policy import ResearcherPolicy
 from lockknife.core.agent.provider import LLMProvider
 from lockknife.core.agent.reflexion import ReflexionEngine
 from lockknife.core.agent.steering import SteeringQueue
+from lockknife.core.agent.subagent import ExecutionBudget
 from lockknife.core.agent.tools import AgentToolRegistry
 
 logger = logging.getLogger("lockknife.agent.turn")
@@ -61,6 +62,7 @@ class TurnEngine:
         on_turn_decision: Callable[[TurnRecord], None] | None = None,
         on_tool_execute: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[ToolObservation], None] | None = None,
+        execution_budget: ExecutionBudget | None = None,
     ) -> None:
         self.goal = goal
         self.provider = provider
@@ -71,6 +73,7 @@ class TurnEngine:
         self.reflexion = ReflexionEngine(self.plan)
         self.steering = steering or SteeringQueue()
         self.max_concurrency = max(1, max_concurrency)
+        self.execution_budget = execution_budget or ExecutionBudget(goal.budget_iterations)
 
         self.working_memory = WorkingMemory(goal=goal)
         self.consolidated_summary: str | None = None
@@ -96,6 +99,8 @@ class TurnEngine:
 
         try:
             while current_iteration < self.goal.budget_iterations:
+                if not self.execution_budget.consume():
+                    break
                 current_iteration += 1
                 turn_start = time.time()
                 if self.on_turn_start:
@@ -140,6 +145,20 @@ class TurnEngine:
                     turns.append(turn_record)
                     self.working_memory.recent_turns.append(turn_record)
                     self.memory.persist_turn(turn_record)
+
+                    if decision.kind == DecisionKind.CONTINUE:
+                        continue
+                    if decision.kind == DecisionKind.ERROR:
+                        self.goal.status = GoalStatus.FAILED
+                        return AgentRunResult(
+                            goal=self.goal,
+                            status=GoalStatus.FAILED,
+                            final_response=decision.text,
+                            error=decision.text,
+                            turns=turns,
+                            artifacts_created=all_artifacts,
+                            duration_s=time.time() - start_time,
+                        )
 
                     self.goal.status = GoalStatus.COMPLETED
                     return AgentRunResult(
@@ -239,16 +258,37 @@ class TurnEngine:
             summary_messages = self.memory.build_llm_messages(
                 self.working_memory, self.consolidated_summary
             )
-            summary_messages.append({
-                "role": "user",
-                "content": "Turn budget reached. Please provide your final forensic summary and conclusions based on all evidence collected so far.",
-            })
-            final_dec = self.provider.complete(messages=summary_messages, tools=None)
+            summary_messages.append(
+                {
+                    "role": "user",
+                    "content": "Turn budget reached. Please provide your final forensic summary and conclusions based on all evidence collected so far.",
+                }
+            )
+            final_dec = (
+                self.provider.complete(messages=summary_messages, tools=None)
+                if self.execution_budget.consume()
+                else ModelDecision.continue_run("Aggregate agent decision budget exhausted.")
+            )
+            if final_dec.kind == DecisionKind.ERROR:
+                self.goal.status = GoalStatus.FAILED
 
             return AgentRunResult(
                 goal=self.goal,
-                status=GoalStatus.BUDGET_EXHAUSTED,
+                status=self.goal.status,
                 final_response=final_dec.text or "Turn budget exhausted before mission completion.",
+                turns=turns,
+                artifacts_created=all_artifacts,
+                duration_s=time.time() - start_time,
+                error=final_dec.text if final_dec.kind == DecisionKind.ERROR else None,
+            )
+
+        except Exception as exc:
+            self.goal.status = GoalStatus.FAILED
+            return AgentRunResult(
+                goal=self.goal,
+                status=GoalStatus.FAILED,
+                final_response=str(exc),
+                error=str(exc),
                 turns=turns,
                 artifacts_created=all_artifacts,
                 duration_s=time.time() - start_time,

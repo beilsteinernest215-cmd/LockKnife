@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import logging
-import os
 import pathlib
+import re
 import time
+import uuid
 from typing import Any
 
-from lockknife.core.agent.models import AgentGoal, ToolObservation, TurnRecord
+from lockknife.core.agent._workspace_fs import WorkspaceFiles
+from lockknife.core.agent.models import AgentGoal, AgentRunResult, TurnRecord
 
 logger = logging.getLogger("lockknife.agent.memory")
 
@@ -20,6 +23,7 @@ _MAX_OBSERVATION_CHARS = 4000
 @dataclasses.dataclass
 class WorkingMemory:
     """Active in-memory working state for the current run."""
+
     goal: AgentGoal
     scratchpad: list[str] = dataclasses.field(default_factory=list)
     recent_turns: list[TurnRecord] = dataclasses.field(default_factory=list)
@@ -35,59 +39,92 @@ class MemoryStore:
         self,
         case_dir: pathlib.Path,
         max_context_tokens: int = _DEFAULT_MAX_CONTEXT_TOKENS,
+        goal_id: str | None = None,
     ) -> None:
         self.case_dir = pathlib.Path(case_dir).resolve()
         self.max_context_tokens = max_context_tokens
+        self.goal_id = goal_id
+        self.run_id = uuid.uuid4().hex
         self.agent_dir = self.case_dir / ".agent"
         self.memory_dir = self.agent_dir / "memory"
         self.artifacts_dir = self.agent_dir / "artifacts"
         self.facts_path = self.agent_dir / "facts.json"
 
-        self.agent_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
+        self.case_dir.mkdir(parents=True, exist_ok=True)
+        self._files = WorkspaceFiles(self.case_dir)
+        for directory in (".agent", ".agent/memory", ".agent/artifacts"):
+            self._files.ensure_directory(directory, pin=True)
 
         self._facts: dict[str, Any] = self._load_facts()
 
+    @contextlib.contextmanager
+    def _facts_lock(self):
+        with self._files.lock_file(".agent/facts.lock"):
+            yield
+
+    def _write_facts(self) -> None:
+        self._files.write_text(self.facts_path, json.dumps(self._facts, indent=2))
+
     def _load_facts(self) -> dict[str, Any]:
-        if self.facts_path.exists():
-            try:
-                return json.loads(self.facts_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                logger.warning("Failed to load facts from %s: %s", self.facts_path, exc)
-        return {}
+        try:
+            return json.loads(self._files.read_text(self.facts_path))
+        except FileNotFoundError:
+            return {}
 
     def save_facts(self) -> None:
-        try:
-            self.facts_path.write_text(json.dumps(self._facts, indent=2), encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Failed to save facts to %s: %s", self.facts_path, exc)
+        with self._facts_lock():
+            self._facts = {**self._load_facts(), **self._facts}
+            self._write_facts()
 
     def set_fact(self, key: str, value: Any) -> None:
         """Store or update a semantic fact about the device or investigation."""
-        self._facts[key] = value
-        self.save_facts()
+        with self._facts_lock():
+            self._facts = self._load_facts()
+            self._facts[key] = value
+            history = self.memory_dir / f"fact_{self.run_id}_{uuid.uuid4().hex}.json"
+            self._files.write_text(
+                history,
+                json.dumps(
+                    {
+                        "goal_id": self.goal_id,
+                        "run_id": self.run_id,
+                        "key": key,
+                        "value": value,
+                        "timestamp": time.time(),
+                    },
+                ),
+                exclusive=True,
+            )
+            self._write_facts()
 
     def get_facts(self) -> dict[str, Any]:
-        return dict(self._facts)
+        return dict(self._load_facts())
 
     def persist_turn(self, turn: TurnRecord) -> None:
         """Save turn record into episodic memory."""
-        turn_file = self.memory_dir / f"turn_{turn.turn_index:04d}.json"
-        try:
-            turn_file.write_text(json.dumps(turn.to_dict(), indent=2), encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Failed to persist turn %d to %s: %s", turn.turn_index, turn_file, exc)
+        turn_file = (
+            self.memory_dir / f"turn_{self.run_id}_{turn.turn_index:04d}_{uuid.uuid4().hex}.json"
+        )
+        data = {**turn.to_dict(), "goal_id": self.goal_id, "run_id": self.run_id}
+        self._files.write_text(turn_file, json.dumps(data, indent=2), exclusive=True)
+
+    def persist_result(self, result: AgentRunResult) -> None:
+        path = self.memory_dir / f"result_{self.run_id}_{uuid.uuid4().hex}.json"
+        self._files.write_text(
+            path, json.dumps({**result.to_dict(), "run_id": self.run_id}, indent=2), exclusive=True
+        )
 
     def load_episodic_turns(self) -> list[dict[str, Any]]:
         """Load all persisted turns from the case memory."""
         turns: list[dict[str, Any]] = []
-        for file in sorted(self.memory_dir.glob("turn_*.json")):
-            try:
-                turns.append(json.loads(file.read_text(encoding="utf-8")))
-            except Exception:
+        for name in sorted(self._files.names(".agent/memory")):
+            if not (name.startswith("turn_") and name.endswith(".json")):
                 continue
-        return turns
+            try:
+                turns.append(json.loads(self._files.read_text(self.memory_dir / name)))
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+        return sorted(turns, key=lambda turn: turn.get("timestamp", 0))
 
     def truncate_observation_payload(self, tool_id: str, payload: Any) -> tuple[Any, str | None]:
         """Truncate large tool outputs, writing full output to an artifact file."""
@@ -96,13 +133,10 @@ class MemoryStore:
             return payload, None
 
         # Content exceeds max chars - spill to disk
-        timestamp = int(time.time() * 1000)
-        safe_tool = tool_id.replace(".", "_")
+        timestamp = uuid.uuid4().hex
+        safe_tool = re.sub(r"[^A-Za-z0-9_-]", "_", tool_id)[:64]
         artifact_path = self.artifacts_dir / f"obs_{safe_tool}_{timestamp}.txt"
-        try:
-            artifact_path.write_text(text, encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Failed to write artifact: %s", exc)
+        self._files.write_text(artifact_path, text, exclusive=True)
 
         preview = (
             text[:_MAX_OBSERVATION_CHARS]
@@ -120,7 +154,8 @@ class MemoryStore:
         messages: list[dict[str, Any]] = []
 
         # 1. System/Goal message
-        facts_summary = json.dumps(self._facts) if self._facts else "None recorded yet."
+        facts = self.get_facts()
+        facts_summary = json.dumps(facts) if facts else "None recorded yet."
         scratchpad_text = "\n".join(f"- {note}" for note in working_memory.scratchpad) or "None."
 
         context_header = (
@@ -139,34 +174,42 @@ class MemoryStore:
 
         # 2. Append turns
         for turn in working_memory.recent_turns:
+            if turn.user_input is not None:
+                messages.append({"role": "user", "content": turn.user_input})
             if turn.decision.tool_calls:
-                messages.append({
-                    "role": "assistant",
-                    "content": turn.decision.reasoning or turn.decision.text or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.call_id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.tool_id,
-                                "arguments": json.dumps(tc.arguments),
-                            },
-                        }
-                        for tc in turn.decision.tool_calls
-                    ],
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": turn.decision.reasoning or turn.decision.text or "",
+                        "tool_calls": [
+                            {
+                                "id": tc.call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.tool_id,
+                                    "arguments": json.dumps(tc.arguments),
+                                },
+                            }
+                            for tc in turn.decision.tool_calls
+                        ],
+                    }
+                )
             elif turn.decision.text or turn.decision.reasoning:
-                messages.append({
-                    "role": "assistant",
-                    "content": turn.decision.text or turn.decision.reasoning or "",
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": turn.decision.text or turn.decision.reasoning or "",
+                    }
+                )
 
             for obs in turn.observations:
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": obs.call_id,
-                    "content": json.dumps(obs.to_dict(), default=str),
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": obs.call_id,
+                        "content": json.dumps(obs.to_dict(), default=str),
+                    }
+                )
 
         return messages
 

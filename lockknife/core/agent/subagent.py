@@ -2,12 +2,29 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import threading
 import uuid
 from typing import Any
 
 from lockknife.core.agent.models import AgentGoal, AgentRunResult, GoalStatus
 
 logger = logging.getLogger("lockknife.agent.subagent")
+
+
+class ExecutionBudget:
+    """One decision-call budget shared by the complete delegation tree."""
+
+    def __init__(self, calls: int, max_depth: int = 3) -> None:
+        self.remaining = max(0, calls)
+        self.max_depth = max_depth
+        self._lock = threading.Lock()
+
+    def consume(self) -> bool:
+        with self._lock:
+            if self.remaining <= 0:
+                return False
+            self.remaining -= 1
+            return True
 
 
 class SubagentManager:

@@ -13,6 +13,7 @@ class DecisionKind(str, enum.Enum):
     TOOL_CALL = "tool_call"
     CONTINUE = "continue"
     FINISH = "finish"
+    ERROR = "error"
 
 
 class GoalStatus(str, enum.Enum):
@@ -27,6 +28,7 @@ class GoalStatus(str, enum.Enum):
 @dataclasses.dataclass(frozen=True)
 class ToolInvocation:
     """A tool call proposed by the model."""
+
     call_id: str
     tool_id: str
     arguments: dict[str, Any] = dataclasses.field(default_factory=dict)
@@ -50,6 +52,7 @@ class ToolInvocation:
 @dataclasses.dataclass(frozen=True)
 class ToolObservation:
     """The result of executing a tool call."""
+
     call_id: str
     tool_id: str
     success: bool
@@ -85,6 +88,7 @@ class ToolObservation:
 @dataclasses.dataclass(frozen=True)
 class ModelDecision:
     """State transition returned by the LLM Provider."""
+
     kind: DecisionKind
     text: str = ""
     tool_calls: list[ToolInvocation] = dataclasses.field(default_factory=list)
@@ -108,6 +112,10 @@ class ModelDecision:
     def finish(cls, outcome: str, reasoning: str | None = None) -> ModelDecision:
         return cls(kind=DecisionKind.FINISH, text=outcome, reasoning=reasoning)
 
+    @classmethod
+    def failure(cls, message: str) -> ModelDecision:
+        return cls(kind=DecisionKind.ERROR, text=message)
+
     @property
     def is_tool_call(self) -> bool:
         return self.kind == DecisionKind.TOOL_CALL and len(self.tool_calls) > 0
@@ -120,6 +128,7 @@ class ModelDecision:
 @dataclasses.dataclass
 class AgentGoal:
     """The mission objective and parameters for the autonomous agent."""
+
     objective: str
     goal_id: str = dataclasses.field(default_factory=lambda: str(uuid.uuid4())[:8])
     case_dir: pathlib.Path | None = None
@@ -143,11 +152,13 @@ class AgentGoal:
 @dataclasses.dataclass
 class TurnRecord:
     """A record of a single reasoning/action step."""
+
     turn_index: int
     decision: ModelDecision
     observations: list[ToolObservation] = dataclasses.field(default_factory=list)
     timestamp: float = dataclasses.field(default_factory=time.time)
     duration_s: float = 0.0
+    user_input: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -161,12 +172,14 @@ class TurnRecord:
             "observations": [obs.to_dict() for obs in self.observations],
             "timestamp": self.timestamp,
             "duration_s": self.duration_s,
+            "user_input": self.user_input,
         }
 
 
 @dataclasses.dataclass
 class AgentRunResult:
     """The final outcome of an autonomous agent run."""
+
     goal: AgentGoal
     status: GoalStatus
     final_response: str

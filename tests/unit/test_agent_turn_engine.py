@@ -27,12 +27,15 @@ def test_turn_engine_successful_mission(tmp_path: pathlib.Path):
 
     # Turn 1: Call triage tool
     # Turn 2: Finish
-    provider = DeterministicMockProvider([
-        ModelDecision.call_tools([
-            ToolInvocation(call_id="c1", tool_id="core.health", arguments={})
-        ], reasoning="Checking health."),
-        ModelDecision.finish("All security checks passed. Device is healthy."),
-    ])
+    provider = DeterministicMockProvider(
+        [
+            ModelDecision.call_tools(
+                [ToolInvocation(call_id="c1", tool_id="core.health", arguments={})],
+                reasoning="Checking health.",
+            ),
+            ModelDecision.finish("All security checks passed. Device is healthy."),
+        ]
+    )
 
     engine = TurnEngine(
         goal=goal,
@@ -59,11 +62,13 @@ def test_turn_engine_budget_exhaustion(tmp_path: pathlib.Path):
     )
 
     # Provider always calls tools without finishing
-    provider = DeterministicMockProvider([
-        ModelDecision.call_tools([ToolInvocation(call_id="c1", tool_id="core.doctor")]),
-        ModelDecision.call_tools([ToolInvocation(call_id="c2", tool_id="core.doctor")]),
-        ModelDecision.respond("Summary after budget expired."),
-    ])
+    provider = DeterministicMockProvider(
+        [
+            ModelDecision.call_tools([ToolInvocation(call_id="c1", tool_id="core.doctor")]),
+            ModelDecision.call_tools([ToolInvocation(call_id="c2", tool_id="core.doctor")]),
+            ModelDecision.respond("Summary after budget expired."),
+        ]
+    )
 
     engine = TurnEngine(
         goal=goal,
@@ -90,12 +95,14 @@ def test_turn_engine_stall_detection(tmp_path: pathlib.Path):
 
     # Provider keeps repeating exact same failing call
     call = ToolInvocation(call_id="dup", tool_id="core.health", arguments={"retry": 1})
-    provider = DeterministicMockProvider([
-        ModelDecision.call_tools([call]),
-        ModelDecision.call_tools([call]),
-        ModelDecision.call_tools([call]),
-        ModelDecision.finish("Aborted due to repeated failures."),
-    ])
+    provider = DeterministicMockProvider(
+        [
+            ModelDecision.call_tools([call]),
+            ModelDecision.call_tools([call]),
+            ModelDecision.call_tools([call]),
+            ModelDecision.finish("Aborted due to repeated failures."),
+        ]
+    )
 
     engine = TurnEngine(
         goal=goal,
@@ -114,12 +121,22 @@ def test_turn_engine_stall_detection(tmp_path: pathlib.Path):
 def test_autonomous_runtime_chat_step(tmp_path: pathlib.Path):
     from lockknife.core.agent.runtime import AutonomousRuntime
 
-    provider = DeterministicMockProvider([
-        ModelDecision.call_tools([
-            ToolInvocation(call_id="c_chat", tool_id="record_fact", arguments={"key": "status", "value": "audited"})
-        ], reasoning="Recording audit fact."),
-        ModelDecision.respond("Device audited successfully."),
-    ])
+    provider = DeterministicMockProvider(
+        [
+            ModelDecision.call_tools(
+                [
+                    ToolInvocation(
+                        call_id="c_chat",
+                        tool_id="record_fact",
+                        arguments={"key": "status", "value": "audited"},
+                    )
+                ],
+                reasoning="Recording audit fact.",
+            ),
+            ModelDecision.respond("Device audited successfully."),
+            ModelDecision.respond("Prior audit remains available."),
+        ]
+    )
 
     runtime = AutonomousRuntime(
         goal=AgentGoal(objective="Interactive session"),
@@ -129,7 +146,8 @@ def test_autonomous_runtime_chat_step(tmp_path: pathlib.Path):
 
     step1 = runtime.chat_step("Check audit status")
     assert "Calling tool: record_fact" in step1
+    assert "Device audited successfully." in step1
 
     step2 = runtime.chat_step("Summarize findings")
-    assert "Device audited successfully." in step2
+    assert "Prior audit remains available." in step2
     assert runtime.memory.get_facts()["status"] == "audited"

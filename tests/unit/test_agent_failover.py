@@ -9,7 +9,9 @@ from lockknife.core.agent.models import ModelDecision
 def test_failover_provider_fallback_on_error():
     # Primary returns API error
     mock_primary = MagicMock()
-    mock_primary.complete.return_value = ModelDecision.finish("LLM API Error (HTTP 429): Rate limit exceeded")
+    mock_primary.complete.return_value = ModelDecision.failure(
+        "LLM API Error (HTTP 429): Rate limit exceeded"
+    )
 
     # Secondary succeeds
     mock_secondary = MagicMock()
