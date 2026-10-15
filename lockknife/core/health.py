@@ -396,6 +396,8 @@ def install_missing_dependencies(
             "ok": True,
             "target_extras": [],
             "packages": [],
+            "command": [],
+            "command_str": "",
             "installed": False,
             "dry_run": dry_run,
             "message": "All optional dependencies are already satisfied.",

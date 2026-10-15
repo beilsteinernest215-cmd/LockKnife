@@ -89,7 +89,8 @@ def test_doctor_status_includes_environment_and_hints() -> None:
     assert "fallback_paths" in env
 
 
-def test_install_missing_dependencies_dry_run() -> None:
+def test_install_missing_dependencies_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("lockknife.core.health.importlib.util.find_spec", lambda name: None)
     res = install_missing_dependencies(dry_run=True)
     assert res["ok"] is True
     assert res["dry_run"] is True
@@ -125,7 +126,8 @@ def test_install_missing_dependencies_subprocesses_execution(
     assert any("androguard" in arg for arg in cmd_executed)
 
 
-def test_cli_doctor_install_missing_dry_run() -> None:
+def test_cli_doctor_install_missing_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("lockknife.core.health.importlib.util.find_spec", lambda name: None)
     runner = CliRunner()
     result = runner.invoke(doctor_cmd, ["--install-missing", "--dry-run"])
     assert result.exit_code == 0
@@ -142,7 +144,8 @@ def test_cli_doctor_displays_environment_section() -> None:
     assert sys.executable in result.output
 
 
-def test_tui_callback_doctor_install_missing() -> None:
+def test_tui_callback_doctor_install_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("lockknife.core.health.importlib.util.find_spec", lambda name: None)
     config = LoadedConfig(config=LockKnifeConfig(), path=None)
     app = AppContext(config)
     callback = build_tui_callback(app)
@@ -154,3 +157,19 @@ def test_tui_callback_doctor_install_missing() -> None:
     data = json.loads(res["data_json"])
     assert data["dry_run"] is True
     assert "command" in data
+
+
+def test_install_preview_with_all_extras_present_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("lockknife.core.health.importlib.util.find_spec", lambda name: object())
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("No-op preview must not execute anything")
+
+    monkeypatch.setattr("subprocess.run", forbidden)
+    monkeypatch.setattr("lockknife.core.health.doctor_status", forbidden)
+    result = install_missing_dependencies(dry_run=True)
+    assert result["ok"]
+    assert result["dry_run"]
+    assert result["command"] == []
+    assert result["packages"] == []
+    assert not result["installed"]
