@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -35,6 +36,7 @@ def resolve_tool_binary(tool_name: str) -> str | None:
     except Exception:
         pass
     return None
+
 
 EXTRA_REQUIREMENTS: dict[str, list[str]] = {
     "apk": ["androguard>=4.1.4"],
@@ -128,23 +130,7 @@ def _check_module(
             **({"extra": extra} if extra else {}),
         }
     except Exception as first_exc:
-        # Check if loading from fallback site-packages succeeds
-        added = enable_fallback_site_packages()
-        if added:
-            try:
-                mod = importlib.import_module(module_name)
-                source = getattr(mod, "__file__", None)
-                return {
-                    "ok": True,
-                    "module": module_name,
-                    "source": str(source) if source else None,
-                    "loaded_from_fallback": True,
-                    **({"extra": extra} if extra else {}),
-                }
-            except Exception:
-                pass
-
-        # Inspect if files exist in fallback paths on disk
+        # Diagnose other installations without importing into this environment.
         pkg_base = module_name.split(".")[0]
         disk_candidates = [
             p
@@ -355,14 +341,34 @@ def install_missing_dependencies(
     pip_args: list[str] | None = None,
 ) -> dict[str, Any]:
     """Automated dependencies installer for missing or selected LockKnife extras."""
-    doc = doctor_status()
     target_extras: list[str] = []
+
+    unknown = set(extras or ()) - EXTRA_REQUIREMENTS.keys()
+    if unknown:
+        raise LockKnifeError(f"Unknown dependency extras: {', '.join(sorted(unknown))}")
 
     if all_extras:
         target_extras = sorted(EXTRA_REQUIREMENTS.keys())
     elif extras:
-        target_extras = [e for e in extras if e in EXTRA_REQUIREMENTS]
+        target_extras = sorted(set(extras))
+    elif dry_run:
+        # Top-level spec discovery does not import packages or probe ADB.
+        modules = {
+            "apk": ("androguard",),
+            "frida": ("frida",),
+            "ml": ("numpy", "sklearn", "joblib"),
+            "yara": ("yara",),
+            "threat-intel": ("vt", "OTXv2"),
+            "network": ("scapy",),
+            "pdf": ("xhtml2pdf",),
+        }
+        target_extras = [
+            extra
+            for extra, names in modules.items()
+            if any(importlib.util.find_spec(name) is None for name in names)
+        ]
     else:
+        doc = doctor_status()
         detected: set[str] = set()
         optional = doc.get("optional", {})
         for item in optional.values():
@@ -391,6 +397,7 @@ def install_missing_dependencies(
             "target_extras": [],
             "packages": [],
             "installed": False,
+            "dry_run": dry_run,
             "message": "All optional dependencies are already satisfied.",
         }
 
@@ -462,4 +469,3 @@ def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_main())
-

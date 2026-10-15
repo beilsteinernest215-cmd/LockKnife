@@ -22,7 +22,9 @@ from lockknife_headless_cli.main import AppContext
 from lockknife_headless_cli.tui_callback import build_tui_callback
 
 
-def test_fallback_site_packages_discovery(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+def test_fallback_site_packages_discovery(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     fake_user_site = tmp_path / "fake_user_site"
     fake_user_site.mkdir()
 
@@ -33,6 +35,7 @@ def test_fallback_site_packages_discovery(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert str(fake_user_site) in candidates
 
     # Enable fallback adds to sys.path
+    monkeypatch.setattr(sys, "path", list(sys.path))
     if str(fake_user_site) in sys.path:
         sys.path.remove(str(fake_user_site))
     added = enable_fallback_site_packages()
@@ -40,7 +43,7 @@ def test_fallback_site_packages_discovery(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert str(fake_user_site) in sys.path
 
 
-def test_check_module_finds_module_in_fallback_site_packages(
+def test_check_module_reports_fallback_without_importing_it(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     # Create a fake installed module in a fallback directory not initially in sys.path
@@ -60,10 +63,11 @@ def test_check_module_finds_module_in_fallback_site_packages(
         sys.path.remove(str(fallback_dir))
 
     res = _check_module("custom_tool", extra="tool")
-    assert res["ok"] is True
+    assert res["ok"] is False
     assert res["module"] == "custom_tool"
-    assert res.get("loaded_from_fallback") is True
-    assert str(fallback_dir) in sys.path
+    assert "Found on disk" in res["error"]
+    assert str(fallback_dir) not in sys.path
+    assert "custom_tool" not in sys.modules
 
 
 def test_check_module_reports_accurate_hint_and_extra() -> None:
@@ -102,7 +106,9 @@ def test_install_missing_dependencies_all_extras_dry_run() -> None:
     assert set(res["target_extras"]) == set(EXTRA_REQUIREMENTS.keys())
 
 
-def test_install_missing_dependencies_subprocesses_execution(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_missing_dependencies_subprocesses_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     mock_run = MagicMock()
     mock_run.return_value = types.SimpleNamespace(
         returncode=0, stdout="Successfully installed", stderr=""

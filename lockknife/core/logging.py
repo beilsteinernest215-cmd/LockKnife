@@ -10,6 +10,7 @@ from typing import Any, cast
 import structlog
 
 from lockknife.core.config import LockKnifeConfig
+from lockknife.core.log_redaction import redact_log_event
 
 
 class StderrPrintLoggerFactory:
@@ -75,11 +76,9 @@ def configure_logging(cfg: LockKnifeConfig) -> None:
         add_trace_id_processor,
     ]
 
+    # Serialize exceptions before redaction so tracebacks cannot bypass it.
+    shared_processors.extend([structlog.processors.format_exc_info, redact_log_event])
     if cfg.log_format.lower() == "json":
-        # format_exc_info serialises tracebacks to strings for JSON output;
-        # ConsoleRenderer handles exception rendering natively so adding
-        # format_exc_info with it causes a UserWarning.
-        shared_processors.append(structlog.processors.format_exc_info)
         renderer: structlog.typing.Processor = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer()

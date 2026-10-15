@@ -8,6 +8,7 @@ import click
 
 from lockknife.core.error_report import capture
 from lockknife.core.exceptions import LockKnifeError
+from lockknife.core.log_redaction import credential_context, redact
 from lockknife.core.logging import get_logger
 
 
@@ -35,9 +36,19 @@ def _device_hint(params: dict[str, Any]) -> str | None:
 
 class LockKnifeCommand(click.Command):
     def invoke(self, ctx: click.Context) -> Any:
+        with credential_context(ctx.params or {}):
+            try:
+                return self._invoke_redacted(ctx)
+            except click.ClickException as exc:
+                message = redact(exc.message)
+                if message != exc.message:
+                    raise click.ClickException(message) from None
+                raise
+
+    def _invoke_redacted(self, ctx: click.Context) -> Any:
         log = get_logger()
         start = time.perf_counter()
-        params = {k: _safe_value(v) for k, v in (ctx.params or {}).items()}
+        params = redact({k: _safe_value(v) for k, v in (ctx.params or {}).items()})
         log.info("cli_start", command=ctx.command_path, params=params)
         try:
             out = super().invoke(ctx)

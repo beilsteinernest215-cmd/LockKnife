@@ -20,6 +20,8 @@ import traceback
 from dataclasses import dataclass
 from typing import Any
 
+from lockknife.core.log_redaction import redact
+
 
 @dataclass
 class ErrorReport:
@@ -51,15 +53,15 @@ def capture(
         operation=operation,
         timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         exc_type=exc_type.__name__ if exc_type else "UnknownError",
-        exc_message=str(exc_value) if exc_value else "",
-        traceback=tb_text,
+        exc_message=redact(str(exc_value)) if exc_value else "",
+        traceback=redact(tb_text),
         device_serial=device_serial,
         platform_info={
             "python": sys.version,
             "platform": platform.platform(),
             "arch": platform.machine(),
         },
-        extra=extra or {},
+        extra=redact(extra or {}),
     )
 
 
