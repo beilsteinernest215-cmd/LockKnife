@@ -88,6 +88,33 @@ lockknife --cli case export --case-dir ./cases/EXAMPLE_CASE --include-registered
 
 The bundle includes a consistent case database snapshot and selected artifacts. It is not an encrypted archive. Protect it according to the same policy as the original evidence; see [Case Integrity & Privacy](case-integrity-and-privacy.md).
 
+## 8. Automate an Investigation
+
+Choose a playbook when you want a repeatable sequence. Inspect its steps before running it:
+
+```bash
+lockknife --cli pipeline list
+lockknife --cli pipeline plan --playbook triage --format json
+lockknife --cli pipeline run --playbook triage --case-dir ./cases/EXAMPLE_CASE --serial EXAMPLE_DEVICE_SERIAL --dry-run
+lockknife --cli pipeline run --playbook triage --case-dir ./cases/EXAMPLE_CASE --serial EXAMPLE_DEVICE_SERIAL
+lockknife --cli pipeline status --case-dir ./cases/EXAMPLE_CASE
+lockknife --cli pipeline resume --case-dir ./cases/EXAMPLE_CASE
+```
+
+A dry run previews actions without acquiring evidence or marking steps complete. Resume uses a matching saved recipe and target; successful steps are reused, while failed steps can be attempted again. A partial result is not a completed investigation. Cancellation stops new actions; an already-running synchronous action must return before the run can finish stopping.
+
+For an adaptive workflow, configure an OpenAI-compatible model endpoint with `LOCKKNIFE_AI_BASE` and `LOCKKNIFE_AI_MODEL`. Set `LOCKKNIFE_AI_KEY` in your environment if that endpoint requires authentication. The default endpoint is local (`http://localhost:11434/v1`); the server and selected model must be available before starting a live agent.
+
+```bash
+lockknife --cli agent goal "Inventory accessible evidence and summarize the device security posture" --target EXAMPLE_DEVICE_SERIAL --case-dir ./cases/EXAMPLE_CASE --budget 25
+lockknife --cli agent chat --case-dir ./cases/EXAMPLE_CASE
+lockknife --cli agent memory --case-dir ./cases/EXAMPLE_CASE
+```
+
+The budget limits model decisions across the goal and its delegated work. Agent mode permits host commands and device operations without repeated confirmation, so choose its working environment and accessible credentials deliberately. `--restricted` narrows the available operations; it is not an operating-system sandbox. Remote model endpoints receive the context sent to them, including tool results. Use a local model when your evidence policy prohibits that disclosure.
+
+Case memory records observations and outcomes, but model conclusions still require evidence review. A failed provider request, unavailable capability, or partial acquisition must not be interpreted as a successful assessment. `--mock` is a simulation mode, not a live investigation.
+
 ## Command Reference
 
 ```bash

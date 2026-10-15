@@ -89,6 +89,19 @@ Work interactively in a full-screen terminal interface or use focused CLI comman
 
 **Also included:** supported legacy PIN/password recovery, credential-artifact inspection, wallet forensics, optional log anomaly scoring, and Bluetooth, Wi-Fi, and TCP discovery or protocol tools. Rust-powered hashing, recovery, and native analysis helpers support demanding tasks.
 
+### Automate Your Investigation
+
+Use **autonomous agents** for goal-driven research or **repeatable playbooks** for a defined collection and analysis sequence. Agents can use a configured local or OpenAI-compatible model, invoke investigation tools, delegate focused tasks, and retain case memory. Playbooks connect collection outputs to analysis and reports, with checkpoints for resuming interrupted work.
+
+```bash
+lockknife --cli pipeline list
+lockknife --cli pipeline plan --playbook triage
+lockknife --cli pipeline run --playbook triage --serial EXAMPLE_DEVICE_SERIAL --case-dir ./cases/EXAMPLE_CASE
+lockknife --cli agent goal "Assess the connected device and summarize the evidence" --target EXAMPLE_DEVICE_SERIAL --case-dir ./cases/EXAMPLE_CASE
+```
+
+Agent mode can execute host commands and device actions without repeated confirmation. Run it with access only to the devices and files included in your research scope. A remote model receives investigation context; use a local endpoint when evidence must stay on your machine. See the [automation guide](docs/headless-cli-walkthrough.md#8-automate-an-investigation) for configuration, previews, and recovery.
+
 > [!NOTE]
 > Investigation examples use dummy identifiers and file paths, not real devices or evidence. Replace `EXAMPLE_*` values, `com.example.placeholder`, and example input paths with your authorized inputs before running a command. Installation links point to the actual project.
 
@@ -230,9 +243,10 @@ python -m pip install '/path/to/EXAMPLE_WHEEL.whl[full]'
 | `yara` | YARA rule scanning |
 | `threat-intel` | VirusTotal and OTX clients |
 | `ml` | Machine-learning analysis helpers |
+| `pdf` | PDF report rendering |
 | `full` | All investigation extras above |
 
-External tools still apply: JADX/apktool for decompilation, a target Frida server for instrumentation, and device `tcpdump` for capture. PDF rendering and Bleak are separate dependencies, not included in `full`. Install optional Python dependencies in the environment containing LockKnife, not an unrelated system Python.
+External tools still apply: JADX/apktool for decompilation, a target Frida server for instrumentation, and device `tcpdump` for capture. Bleak is a separate dependency, not included in `full`. Install optional Python dependencies in the environment containing LockKnife, not an unrelated system Python.
 
 </details>
 
