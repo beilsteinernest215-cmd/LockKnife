@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import pathlib
 import shlex
+import shutil
 import time
+import uuid
 
 from lockknife.core.device import DeviceManager
 from lockknife.core.exceptions import DeviceError
@@ -42,7 +44,7 @@ def create_snapshot(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with secure_temp_dir(prefix="lockknife-snapshot-") as d:
-        remote_tar = "/sdcard/lockknife-snapshot.tar"
+        remote_tar = f"/sdcard/lockknife-snapshot-{uuid.uuid4().hex}.tar"
         selected = paths or []
         if full:
             selected = ["/data/system", "/data/data"]
@@ -60,7 +62,7 @@ def create_snapshot(
             metadata={"path_count": len(validated), "encrypted": encrypt},
         )
         joined = " ".join(shlex.quote(p) for p in validated)
-        cmd = f'su -c "tar -cf {shlex.quote(remote_tar)} -- {joined} 2>/dev/null"'
+        cmd = "su -c " + shlex.quote(f"tar -cf {shlex.quote(remote_tar)} -- {joined}")
         emit_progress(
             progress_callback,
             operation="forensics.snapshot",
@@ -70,8 +72,6 @@ def create_snapshot(
             total=5,
             metadata={"remote_path": remote_tar},
         )
-        devices.shell(serial, cmd, timeout_s=600.0)
-
         local_tar = d / "snapshot.tar"
         emit_progress(
             progress_callback,
@@ -82,20 +82,27 @@ def create_snapshot(
             total=5,
             metadata={"remote_path": remote_tar, "output_path": str(output_path)},
         )
-        devices.pull(serial, remote_tar, local_tar, timeout_s=600.0)
         try:
-            emit_progress(
-                progress_callback,
-                operation="forensics.snapshot",
-                step="cleanup",
-                message="Removing temporary snapshot archive from device",
-                current=4,
-                total=5,
-                metadata={"remote_path": remote_tar},
-            )
-            devices.shell(serial, f'su -c "rm -f {shlex.quote(remote_tar)}"', timeout_s=30.0)
-        except DeviceError:
-            pass
+            devices.shell(serial, cmd, timeout_s=600.0)
+            devices.pull(serial, remote_tar, local_tar, timeout_s=600.0)
+        finally:
+            try:
+                emit_progress(
+                    progress_callback,
+                    operation="forensics.snapshot",
+                    step="cleanup",
+                    message="Removing temporary snapshot archive from device",
+                    current=4,
+                    total=5,
+                    metadata={"remote_path": remote_tar},
+                )
+                devices.shell(
+                    serial,
+                    "su -c " + shlex.quote(f"rm -f {shlex.quote(remote_tar)}"),
+                    timeout_s=30.0,
+                )
+            except DeviceError:
+                pass
 
         meta = {
             "serial": serial,
@@ -108,7 +115,12 @@ def create_snapshot(
         meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
 
         if not encrypt:
-            output_path.write_bytes(local_tar.read_bytes())
+            temporary = output_path.with_name(f".{output_path.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                shutil.copyfile(local_tar, temporary)
+                temporary.replace(output_path)
+            finally:
+                temporary.unlink(missing_ok=True)
             emit_progress(
                 progress_callback,
                 operation="forensics.snapshot",
@@ -125,6 +137,7 @@ def create_snapshot(
         key = generate_aes256gcm_key()
         key_path = output_path.with_suffix(output_path.suffix + ".key")
         key_path.write_bytes(key)
+        key_path.chmod(0o600)
         emit_progress(
             progress_callback,
             operation="forensics.snapshot",

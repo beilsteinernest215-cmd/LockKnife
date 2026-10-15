@@ -46,6 +46,23 @@ def test_error_report_redacts_traceback_and_restores_context():
     assert redact(secret) == secret
 
 
+@pytest.mark.parametrize(
+    "secret", ["DUMMY\\with\\slashes", "DUMMY\nline\ttab", "DUMMY'and\"quotes", "DUMMY-\u2603"]
+)
+def test_exception_representations_are_redacted(secret):
+    import json
+
+    with credential_context({"password": secret}):
+        try:
+            raise KeyError(secret)
+        except KeyError:
+            report = capture("dummy")
+        assert secret not in report.exc_message
+        assert repr(secret)[1:-1] not in report.exc_message
+        assert "[REDACTED]" in report.exc_message
+        assert "[REDACTED]" in redact(json.dumps(secret))
+
+
 def test_module_diagnostics_do_not_mutate_search_path(monkeypatch, tmp_path):
     root = tmp_path / "site"
     root.mkdir()

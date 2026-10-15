@@ -272,27 +272,28 @@ def build_tui_callback(app: Any) -> Callable[[str, dict[str, Any]], dict[str, An
         _t0 = _time.perf_counter()
         _err_flag = False
         effective_params: dict[str, Any] = dict(params) if params else {}
-        serial_val = effective_params.get("serial") or effective_params.get("selected_device_serial")
+        serial_val = effective_params.get("serial") or effective_params.get(
+            "selected_device_serial"
+        )
         if serial_val and hasattr(app, "selected_device_serial"):
             app.selected_device_serial = str(serial_val)
         elif not serial_val and getattr(app, "selected_device_serial", None):
             effective_params["serial"] = app.selected_device_serial
 
         _job_tracker = _maybe_start_case_job(action, effective_params)
+        tracker_token = None
         if _job_tracker is not None:
-            _JOB_TRACKER_STACK.append(_job_tracker)
+            tracker_token = _JOB_TRACKER_STACK.set((*_JOB_TRACKER_STACK.get(), _job_tracker))
         try:
-            return registry.dispatch(app, action, effective_params)
+            result = registry.dispatch(app, action, effective_params)
+            _err_flag = not result.get("ok", False)
+            return result
         except Exception as exc:
             _err_flag = True
             return _err(str(exc))
         finally:
-            if (
-                _job_tracker is not None
-                and _JOB_TRACKER_STACK
-                and _JOB_TRACKER_STACK[-1] is _job_tracker
-            ):
-                _JOB_TRACKER_STACK.pop()
+            if tracker_token is not None:
+                _JOB_TRACKER_STACK.reset(tracker_token)
             try:
                 from lockknife.core.metrics import _entry
 

@@ -168,19 +168,19 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
         full = _bool_param(params.get("full"))
         encrypt = _bool_param(params.get("encrypt"))
         input_paths = _csv_list(params.get("paths"))
-        out = create_snapshot(_devices(app), serial, output_path=output, full=full, encrypt=encrypt)
+        out = create_snapshot(
+            _devices(app), serial, output_path=output, paths=input_paths, full=full, encrypt=encrypt
+        )
         _register_case_output(
             case_dir,
-            path=output,
+            path=out,
             category="forensics-snapshot",
             source_command="forensics snapshot",
             device_serial=serial,
             input_paths=input_paths,
             metadata={"full": full, "encrypt": encrypt},
         )
-        snapshot_artifact = (
-            find_case_artifact(case_dir, path=output) if case_dir is not None else None
-        )
+        snapshot_artifact = find_case_artifact(case_dir, path=out) if case_dir is not None else None
         parent_ids = [snapshot_artifact.artifact_id] if snapshot_artifact is not None else None
         meta_path = output.with_suffix(output.suffix + ".meta.json")
         if meta_path.exists():
@@ -206,7 +206,9 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
                 parent_artifact_ids=parent_ids,
                 metadata={"full": full, "encrypt": encrypt},
             )
-        return _ok(dataclasses.asdict(out), f"Snapshot written to {output}")
+        return _ok(
+            {"output": str(out), "full": full, "encrypted": encrypt}, f"Snapshot written to {out}"
+        )
 
     def _parent_artifact_ids(case_dir: Any, input_paths: list[str]) -> list[str] | None:
         if case_dir is None:

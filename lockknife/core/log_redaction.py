@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import json
 import re
 from collections.abc import Iterator, Mapping
 from typing import Any
@@ -30,8 +31,17 @@ def redact(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [redact(item) for item in value]
     if isinstance(value, str):
-        for secret in sorted(_secrets.get(), key=len, reverse=True):
-            value = value.replace(secret, "[REDACTED]")
+        variants: set[str] = set()
+        for secret in _secrets.get():
+            # Exceptions may render arguments using repr(), and JSON clients can
+            # embed a serialized credential in their diagnostic message.
+            variants.update((secret, repr(secret)[1:-1], ascii(secret)[1:-1]))
+            variants.update(
+                json.dumps(secret, ensure_ascii=ascii_only)[1:-1] for ascii_only in (True, False)
+            )
+        for variant in sorted(variants, key=len, reverse=True):
+            if variant:
+                value = value.replace(variant, "[REDACTED]")
     return value
 
 

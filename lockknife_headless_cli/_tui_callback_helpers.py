@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import json
 import pathlib
@@ -26,7 +27,9 @@ class _CaseJobTracker:
     finalized: bool = False
 
 
-_JOB_TRACKER_STACK: list[_CaseJobTracker] = []
+_JOB_TRACKER_STACK: contextvars.ContextVar[tuple[_CaseJobTracker, ...]] = contextvars.ContextVar(
+    "case_job_trackers", default=()
+)
 _JOB_MANAGED_ACTION_PREFIXES = (
     "ai.",
     "extraction.",
@@ -51,7 +54,8 @@ def _asdict(obj: Any) -> Any:
 
 
 def _current_job_tracker() -> _CaseJobTracker | None:
-    return _JOB_TRACKER_STACK[-1] if _JOB_TRACKER_STACK else None
+    stack = _JOB_TRACKER_STACK.get()
+    return stack[-1] if stack else None
 
 
 def _job_action_label(action_id: str) -> str:
