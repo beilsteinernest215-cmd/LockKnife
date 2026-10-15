@@ -172,6 +172,8 @@ def pipeline_run_cmd(
 
     if out_format.lower() == "json":
         console.print_json(json.dumps(summary.to_dict()))
+        if summary.status.value in {"failed", "partial", "cancelled"}:
+            raise click.exceptions.Exit(1)
         return
 
     console.print("\n[bold]═══════════════════════════════════════════════════[/]")
@@ -185,6 +187,8 @@ def pipeline_run_cmd(
     console.print(f"• Duration: [white]{summary.duration_s:.2f}s[/]")
     console.print(f"• Checkpoint: [dim]{summary.checkpoint_path}[/]")
     console.print("[bold]═══════════════════════════════════════════════════[/]\n")
+    if summary.status.value in {"failed", "partial", "cancelled"}:
+        raise click.exceptions.Exit(1)
 
 
 @pipeline_group.command("resume", cls=LockKnifeCommand, help="Resume an interrupted pipeline from checkpoint.")
@@ -220,7 +224,8 @@ def pipeline_resume_cmd(
         target_cp = cps[0]
 
     try:
-        pb = get_playbook(target_cp.playbook_name)
+        saved_recipe = target_cp.metadata.get("recipe")
+        pb = PlaybookDefinition.from_dict(saved_recipe) if saved_recipe else get_playbook(target_cp.playbook_name)
     except Exception as exc:
         raise click.ClickException(f"Failed to load playbook for checkpoint: {exc}") from exc
 
@@ -228,6 +233,7 @@ def pipeline_resume_cmd(
         case_dir=case_dir,
         target_serial=serial or target_cp.target_serial,
         concurrency=concurrency,
+        stop_on_failure=bool(target_cp.metadata.get("stop_on_failure", False)),
     )
 
     if out_format.lower() != "json":
@@ -246,9 +252,13 @@ def pipeline_resume_cmd(
 
     if out_format.lower() == "json":
         console.print_json(json.dumps(summary.to_dict()))
+        if summary.status.value in {"failed", "partial", "cancelled"}:
+            raise click.exceptions.Exit(1)
         return
 
     console.print(f"\n[bold green]Resumed Pipeline Finished:[/] {summary.status.value.upper()} ({summary.duration_s:.2f}s)")
+    if summary.status.value in {"failed", "partial", "cancelled"}:
+        raise click.exceptions.Exit(1)
 
 
 @pipeline_group.command("status", cls=LockKnifeCommand, help="Check status of pipelines in a case workspace.")

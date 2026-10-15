@@ -5,7 +5,6 @@ from typing import Any
 
 from lockknife.core.pipeline.engine import PipelineExecutor
 from lockknife.core.pipeline.models import (
-    AcquisitionTier,
     PipelineStatus,
     PlaybookDefinition,
     StepDefinition,
@@ -24,7 +23,7 @@ def test_executor_plan(tmp_path: pathlib.Path) -> None:
         steps=(step1, step2),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-plan", target_serial="DEV-001")
+    executor = PipelineExecutor(case_dir=tmp_path / "case-plan", target_serial="DEV-001", action_validator=lambda action, params: None)
     plan = executor.plan(pb)
 
     assert plan["playbook_name"] == "test-plan"
@@ -43,13 +42,14 @@ def test_executor_dry_run(tmp_path: pathlib.Path) -> None:
         steps=(step1,),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-dry")
+    executor = PipelineExecutor(case_dir=tmp_path / "case-dry", action_validator=lambda action, params: None)
     summary = executor.execute(pb, dry_run=True)
 
-    assert summary.status == PipelineStatus.COMPLETED
-    assert summary.completed_steps == 1
+    assert summary.status == PipelineStatus.PENDING
+    assert summary.completed_steps == 0
     assert summary.total_steps == 1
-    assert pathlib.Path(summary.checkpoint_path).exists()
+    assert summary.checkpoint_path == ""
+    assert not executor.case_dir.exists()
 
 
 def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> None:
@@ -77,7 +77,7 @@ def test_executor_with_fallback_and_dependency_skip(tmp_path: pathlib.Path) -> N
         steps=(step1, step2, step3, step4),
     )
 
-    executor = PipelineExecutor(case_dir=tmp_path / "case-exec", target_serial="DEV-1")
+    executor = PipelineExecutor(case_dir=tmp_path / "case-exec", target_serial="DEV-1", action_validator=lambda action, params: None)
 
     # Mock dispatch callback
     def mock_dispatch(action: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -122,7 +122,7 @@ def test_executor_resumption(tmp_path: pathlib.Path) -> None:
     )
 
     case_dir = tmp_path / "case-resume"
-    executor = PipelineExecutor(case_dir=case_dir)
+    executor = PipelineExecutor(case_dir=case_dir, action_validator=lambda action, params: None)
 
     call_count = {"act.1": 0, "act.2": 0}
 

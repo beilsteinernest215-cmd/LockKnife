@@ -56,7 +56,7 @@ def test_pipeline_engine_retries_transient_failure(tmp_path: pathlib.Path) -> No
         category="core",
         steps=(step,),
     )
-    executor = PipelineExecutor(case_dir=tmp_path / "case-retry")
+    executor = PipelineExecutor(case_dir=tmp_path / "case-retry", action_validator=lambda action, params: None)
     executor._action_callback = mock_dispatch
     summary = executor.execute(pb)
 
@@ -83,7 +83,8 @@ def test_pipeline_engine_offline_fallback(tmp_path: pathlib.Path) -> None:
         steps=(step,),
     )
     # No target_serial supplied (offline / no target device)
-    executor = PipelineExecutor(case_dir=tmp_path / "case-offline", target_serial=None)
+    executor = PipelineExecutor(case_dir=tmp_path / "case-offline", target_serial=None,
+                                action_validator=lambda action, params: None)
     executor._action_callback = lambda act, params: {"ok": True, "action": act}
     summary = executor.execute(pb)
 

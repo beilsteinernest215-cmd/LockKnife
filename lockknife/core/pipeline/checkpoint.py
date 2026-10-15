@@ -1,27 +1,44 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
-from typing import Any
+import re
+import tempfile
 
 from lockknife.core.exceptions import LockKnifeError
 from lockknife.core.pipeline.models import PipelineCheckpoint
-from lockknife.core.serialize import write_json
 
 
 def pipeline_dir(case_dir: pathlib.Path) -> pathlib.Path:
-    p = case_dir / "pipelines"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return case_dir / "pipelines"
 
 
 def pipeline_checkpoint_path(case_dir: pathlib.Path, pipeline_id: str) -> pathlib.Path:
-    return pipeline_dir(case_dir) / f"{pipeline_id}.json"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", pipeline_id):
+        raise LockKnifeError("Invalid pipeline ID: use 1-128 letters, digits, underscores or hyphens")
+    directory = pipeline_dir(case_dir)
+    path = directory / f"{pipeline_id}.json"
+    if directory.is_symlink() or path.is_symlink():
+        raise LockKnifeError("Pipeline checkpoint paths must not be symlinks")
+    return path
 
 
 def save_checkpoint(checkpoint: PipelineCheckpoint) -> pathlib.Path:
     path = pipeline_checkpoint_path(pathlib.Path(checkpoint.case_dir), checkpoint.pipeline_id)
-    write_json(path, checkpoint.to_dict())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=".checkpoint-", delete=False) as handle:
+            temporary = handle.name
+            json.dump(checkpoint.to_dict(), handle, indent=2, allow_nan=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            pathlib.Path(temporary).unlink(missing_ok=True)
     return path
 
 
@@ -34,7 +51,10 @@ def load_checkpoint(case_dir: pathlib.Path, pipeline_id: str) -> PipelineCheckpo
             payload = json.load(handle)
         if not isinstance(payload, dict):
             raise ValueError("Expected dictionary payload")
-        return PipelineCheckpoint.from_dict(payload)
+        checkpoint = PipelineCheckpoint.from_dict(payload)
+        if checkpoint.pipeline_id != pipeline_id or pathlib.Path(checkpoint.case_dir).resolve() != case_dir.resolve():
+            raise ValueError("Checkpoint identity does not match its path")
+        return checkpoint
     except Exception as exc:
         raise LockKnifeError(f"Failed to load pipeline checkpoint {path}: {exc}") from exc
 
@@ -47,10 +67,7 @@ def list_checkpoints(case_dir: pathlib.Path) -> list[PipelineCheckpoint]:
     checkpoints: list[PipelineCheckpoint] = []
     for f in sorted(p_dir.glob("*.json")):
         try:
-            with f.open("r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-            if isinstance(payload, dict) and "pipeline_id" in payload:
-                checkpoints.append(PipelineCheckpoint.from_dict(payload))
+            checkpoints.append(load_checkpoint(case_dir, f.stem))
         except Exception:
             continue
 

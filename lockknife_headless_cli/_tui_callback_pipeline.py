@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -63,11 +64,19 @@ def handle(app: Any, action: str, params: dict[str, Any], *, cb: Any) -> dict[st
             case_dir=case_dir,
             target_serial=serial,
             stop_on_failure=stop_on_failure,
+            concurrency=int(params.get("concurrency") or 4),
         )
-        run_record = executor.execute(pb, resume=resume)
-        return _ok(
-            run_record.to_dict(),
-            f"Playbook {pb.name} executed with status: {run_record.status.value}",
+        run_record = executor.execute(
+            pb,
+            resume=resume,
+            dry_run=_safe_bool(params.get("dry_run")),
+            pipeline_id=_opt(params.get("pipeline_id")),
         )
+        message = f"Playbook {pb.name} executed with status: {run_record.status.value}"
+        if run_record.status.value not in {"completed", "pending"}:
+            failure = _err(message)
+            failure["data_json"] = json.dumps(run_record.to_dict())
+            return failure
+        return _ok(run_record.to_dict(), message)
 
     return None
