@@ -13,7 +13,7 @@ from lockknife.modules.exploitation.wifi.mitm import (
 
 
 def test_mitm_dhcp_spoof() -> None:
-    """Test starting DHCP spoofing MITM attack."""
+    """DHCP's placeholder must not report successful interception."""
     mitm = MITMAttack()
     config = MITMConfig(
         method=MITMMethod.DHCP_SPOOF,
@@ -29,8 +29,13 @@ def test_mitm_dhcp_spoof() -> None:
 
         result = mitm.start(config, duration_s=0.0)
 
-        assert result.success is True
-        assert result.state == MITMState.RUNNING
+        assert result.success is False
+        assert result.state == MITMState.FAILED
+        assert result.metadata["unsupported"] is True
+        assert result.metadata["process_started"] is False
+        assert result.metadata["interception_verified"] is False
+        assert "unsupported" in result.error
+        mock_popen.assert_not_called()
 
 
 def test_mitm_ssl_strip() -> None:
@@ -52,10 +57,13 @@ def test_mitm_ssl_strip() -> None:
 
         assert result.success is True
         assert result.state == MITMState.RUNNING
+        assert result.metadata["process_started"] is True
+        assert result.metadata["interception_verified"] is False
+        assert result.bytes_intercepted == result.connections_intercepted == 0
 
 
 def test_mitm_http_inject() -> None:
-    """Test starting HTTP traffic injection attack."""
+    """A proxy without an injection handler is explicitly unsupported."""
     mitm = MITMAttack()
     config = MITMConfig(
         method=MITMMethod.HTTP_INJECT,
@@ -71,14 +79,20 @@ def test_mitm_http_inject() -> None:
 
         result = mitm.start(config, duration_s=0.0)
 
-        assert result.success is True
-        assert result.state == MITMState.RUNNING
+        assert result.success is False
+        assert result.state == MITMState.FAILED
+        assert result.metadata["unsupported"] is True
+        assert result.metadata["process_started"] is False
+        assert result.metadata["interception_verified"] is False
+        assert "unsupported" in result.error
+        mock_popen.assert_not_called()
 
 
 def test_mitm_stop_cleanup() -> None:
-    """Test stop cleanup terminating child and background processes."""
+    """Stop terminates and reaps only the process owned by this instance."""
     mitm = MITMAttack()
     mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
     mitm._mitm_process = mock_proc
 
     with patch("subprocess.run") as mock_run:
@@ -86,6 +100,6 @@ def test_mitm_stop_cleanup() -> None:
 
         assert stopped is True
         mock_proc.terminate.assert_called_once()
+        mock_proc.wait.assert_called_once_with(timeout=5.0)
         assert mitm._mitm_process is None
-        # Verify pkill was called for cleanup
-        assert mock_run.call_count >= 1
+        mock_run.assert_not_called()
